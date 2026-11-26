@@ -60,6 +60,9 @@ koneksi ulang; klik pertama bisa tertelan — perilaku hardware.
 
 ## Format pesan (varian vk01/WebHID — default probe)
 
+> ⚠️ Bukan varian unit teste ini (lihat bagian knobctl — terverifikasi).
+> Dipertahankan untuk referensi/capture komunitas & unit firmware lama.
+
 Semua pesan: report id `0x03` + payload 64 byte. Di sisi hidraw, tulis/baca
 termasuk byte report id (65 byte di bus).
 
@@ -78,31 +81,51 @@ LED query       : fa b0 00  ->  fa <mode> <6x RGB>
 Layer query     : fa 19 00 <layer>  ->  25 paket, satu per slot key
 ```
 
-## Format pesan (varian knobctl/CH57x — firmware lebih baru)
+## Format pesan (varian knobctl/CH57x — TERVERIFIKASI di unit ini)
 
-Device dengan VID/PID sama tapi firmware CH57x memakai layout lain
-(knobctl menangkapnya dari app vendor; mendukung binding mouse):
+Unit kabel teste (`514c:8850`, serial `…042302`) menjawab init dengan
+`03 fb 00 01` → **firmware CH57x/knobctl** (bukan vk01/WebHID). Grammar di
+bawah diverifikasi live di hardware 2026-11-27; sumber [ciiiii/knobctl]
+(https://github.com/ciiiii/knobctl) `docs/protocol.md`.
 
 ```text
-init        : fb fb fb 01        -> fb 00 01
-rgb mode    : fe b0 <layer+1> 08 00 00 00 00 00 01 00 <0x50+mode>   + finish fd fe ff
-bind        : fd <key_id> <layer+1> <kind> ...  + finish
-key_id knob : ccw=16, press=17, cw=18; slot 19-24 = tekan+rotasi
-read query  : fa 0f 03 <layer+1>
+init        : fb fb fb 01          -> fb 00 01   (fb fb fb 3 byte juga diterima)
+rgb mode    : fe b0 <layer+1> 08 00 00 00 00 00 01 00 <0x50+mode>  + finish fd fe ff
+bind        : fd <key_id> <layer+1> <kind> 00 00 00 00 00 <count> <payload>  + finish + fd fe ff
+latency     : fd 00 <layer+1> 05 <ms16 LE>       + finish
+read query  : fa 0f 03 <layer+1>   -> 03 fa <key_id> <layer+1> <kind> 00x5 <count> <payload>
+              (unit ini juga merespons fa 19 00 <layer> format vk01 — 25 paket)
 ```
 
-Perbedaan kunci: number layer berbeda (`layer+1`), RGB write-only
-(tidak bisa dibaca ulang), mouse binding jalan. `--variant knobctl`
-di probe memakai format ini.
+key_id: tombol n = n+1; knob: ccw=16 (0x10), tekan=17 (0x11), cw=18 (0x12);
+slot 19..24 = tekan+rotasi (bisa dibaca, tak bisa di-set). id 1..15 = phantom
+keyboard default di unit knob-only (bukan knob).
+
+kind: 1=keyboard (`<count>` × `<mod> <hid-code>` 2 byte), 2=media
+(`<count>=02` + usage 16-bit LE), 3=mouse (`<count>=01` + `<mod> <buttons> <dx> <dy> <wheel>`).
+
+### Mode LED terverifikasi (write-only, TIDAK ada payload warna custom)
+
+| `0x50+` | mode | Tampilan (uji visual) |
+|---|---|---|
+| 0x50 | 0 | mati |
+| 0x51 | 1 | putih |
+| 0x52 | 2 | hijau |
+| 0x53 | 3 | warna-warni (efek; warna tersimpan) |
+| 0x54 | 4 | pelangi |
+| 0x55 | 5 | pelangi (arah lain) |
+
+Mode 6 = tanpa efek. **Tidak ada saluran RGB per-LED** — status LED daemon
+dibatasi efek di atas. `--variant knobctl` di probe memakai format ini.
 
 ## Baterai — STATUS INVESTIGASI
 
-- **BLE**: hampir pasti ada via GATT Battery Service (0x180F) → `upower -d`.
 - **Dongle USB**: **tidak mungkin** — input-only, tanpa channel HID tambahan.
-- **Kabel USB**: belum ada saluran yang terdokumentasi. Tidak ada usage page
-  baterai di report descriptor; tidak ada opcode baterai di protokol publik.
-  Kemungkinan: report berkala tersembunyi (cari lewat `--sniff` saat dicolok
-  kabel) atau memang tidak ada di jalur USB.
+- **Kabel USB**: **teruji negatif** — `--sniff` 30s idle di interface vendor =
+  nol paket berkala; tidak ada usage page baterai; protokol write-only tanpa
+  opcode baterai.
+- **BLE**: belum ditest — hampir pasti ada via GATT Battery Service (0x180F)
+  → `upower -d` saat mode BLE.
 - Fallback desain jika tidak ketemu: LED ring sebagai notifikasi state app /
   koneksi (bukan persen baterai).
 
