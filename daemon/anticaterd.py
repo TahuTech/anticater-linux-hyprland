@@ -300,6 +300,80 @@ def get_active_class():
     return cls if cls and cls != "invalid" else None
 
 
+# ---------- arah pointer (untuk aksi mouse/scroll) ----------
+
+def hyprctl_out(args):
+    """Jalankan hyprctl dengan argumen; kembalikan stdout atau None."""
+    try:
+        p = subprocess.run(["hyprctl", *args], capture_output=True, text=True,
+                           timeout=3)
+    except (subprocess.SubprocessError, FileNotFoundError):
+        return None
+    if p.returncode != 0:
+        return None
+    return p.stdout
+
+
+def cursor_pos():
+    """Posisi pointer (x, y) koordinat layout; None bila gagal."""
+    out = hyprctl_out(["cursorpos"])
+    if not out:
+        return None
+    try:
+        x, y = out.strip().split(",")
+        return int(x), int(y)
+    except ValueError:
+        return None
+
+
+def focus_center():
+    """Titik tengah window aktif; None bila gagal / tak ada jendela."""
+    out = hyprctl_out(["-j", "activewindow"])
+    if not out:
+        return None
+    try:
+        j = json.loads(out)
+        at, size = j.get("at"), j.get("size")
+    except json.JSONDecodeError:
+        return None
+    if not at or not size:
+        return None
+    return at[0] + size[0] // 2, at[1] + size[1] // 2
+
+
+def warp_pointer(target):
+    """Warp pointer ke posisi absolut (x, y) — hl.dsp.cursor.move bersifat
+    absolut (setara movecursor lama), presisi penuh selama koordinat berada
+    di dalam monitor."""
+    try:
+        subprocess.run(["hyprctl", "dispatch",
+                        "hl.dsp.cursor.move({ x = %d, y = %d })" % target],
+                       capture_output=True, text=True, timeout=3)
+        return True
+    except subprocess.SubprocessError:
+        return False
+
+
+def with_pointer_on_focus(fn):
+    """Jalankan fn dengan pointer di tengah window aktif, lalu kembalikan.
+
+    Aksi mouse/scroll sintesis dikirim ke window di bawah pointer, bukan ke
+    window fokus — pointer diarahkan dulu ke tengah jendela aktif agar gestur
+    knob selalu mengenai aplikasi yang sedang dipakai.
+    """
+    cur = cursor_pos()
+    center = focus_center()
+    if not cur or not center:
+        return fn()
+    if not warp_pointer(center):
+        return fn()
+    time.sleep(0.05)  # biarkan kompositor memproses warp sebelum event input
+    try:
+        return fn()
+    finally:
+        warp_pointer(cur)
+
+
 def resolve_actions(cfg, app):
     """Profil aktif: apps[app] -> apps[app.lower()] -> global."""
     if app:
@@ -413,12 +487,23 @@ def exec_action(actor, slot, act, app, dry_run):
         if actor.chord(codes):
             log.info("%-16s %-16s -> %s %s", slot, app or "?", t, act.get("keys"))
     elif t == "scroll":
-        actor.scroll((act.get("keys") or ["down"])[0])
-        log.info("%-16s %-16s -> scroll %s", slot, app or "?", act.get("keys"))
+        direction = (act.get("keys") or ["down"])[0]
+        if direction not in ("up", "down", "left", "right"):
+            log.warning("%s/%s: arah scroll tak dikenal '%s'", app, slot, direction)
+            return
+        with_pointer_on_focus(lambda: actor.scroll(direction))
+        log.info("%-16s %-16s -> scroll %s (pointer -> fokus)", slot, app or "?",
+                 act.get("keys"))
     elif t == "mouse":
-        actor.click({"left": ecodes.BTN_LEFT, "right": ecodes.BTN_RIGHT,
-                     "middle": ecodes.BTN_MIDDLE}[(act.get("keys") or ["left"])[0]])
-        log.info("%-16s %-16s -> klik mouse", slot, app or "?")
+        btn = (act.get("keys") or ["left"])[0]
+        if btn not in ("left", "right", "middle"):
+            log.warning("%s/%s: tombol mouse tak dikenal '%s'", app, slot, btn)
+            return
+        code = {"left": ecodes.BTN_LEFT, "right": ecodes.BTN_RIGHT,
+                "middle": ecodes.BTN_MIDDLE}[btn]
+        with_pointer_on_focus(lambda: actor.click(code))
+        log.info("%-16s %-16s -> klik mouse %s (pointer -> fokus)", slot,
+                 app or "?", btn)
     elif t == "command":
         actor.run_cmd(act["keys"])
         log.info("%-16s %-16s -> command %s", slot, app or "?", act["keys"])

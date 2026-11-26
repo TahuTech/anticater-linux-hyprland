@@ -33,8 +33,11 @@ LED ring (saat kabel): hijau = profil global, pelangi = profil app; mati saat da
 - **Input**: auto-detect evdev `514c` + Keyboard (`--device` untuk paksa path);
   `EVIOCGRAB` eksklusif — event knob tidak lagi sampai ke Hyprland/sistem.
 - **Aksi**: sintesis input via **uinput** (python-evdev, tanpa ydotool):
-  `key` = satu tombol/media, `shortcut` = kombinasi, `mouse` = klik posisi kursor,
+  `key` = satu tombol/media, `shortcut` = kombinasi, `mouse` = klik,
   `scroll` = roda, `command` = argv shell. `noop` = abaikan.
+  Klik/scroll otomatis mengarahkan pointer ke tengah window aktif lalu
+  mengembalikannya — gestur selalu mengenai app fokus, bukan app di bawah
+  kursor (lewat `hyprctl cursorpos` + `hl.dsp.cursor.move`).
 - **Profil**: `apps[WM_CLASS]` → `apps[wmclass.lower()]` → `global`.
   `kitty`, `brave-browser`, `code` (VS Code), dll — kunci bebas isi sendiri.
 - **Press+rotate**: aksi `press` ditunda 180 ms; jika rotasi datang saat knob

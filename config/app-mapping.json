@@ -123,6 +123,43 @@
           "f"
         ]
       }
+    },
+    "Spotify": {
+      "rotate_left": {
+        "type": "scroll",
+        "description": "Gulir ke atas",
+        "keys": [
+          "up"
+        ]
+      },
+      "rotate_right": {
+        "type": "scroll",
+        "description": "Gulir ke bawah",
+        "keys": [
+          "down"
+        ]
+      },
+      "press": {
+        "type": "key",
+        "description": "Play / pause",
+        "keys": [
+          "play_pause"
+        ]
+      },
+      "press_rotate_left": {
+        "type": "key",
+        "description": "Lagu sebelumnya",
+        "keys": [
+          "previous_track"
+        ]
+      },
+      "press_rotate_right": {
+        "type": "key",
+        "description": "Lagu berikutnya",
+        "keys": [
+          "next_track"
+        ]
+      }
     }
   }
 }
