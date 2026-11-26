@@ -84,6 +84,13 @@ def cmd_list() -> int:
     return 0
 
 
+def _key_name(code: int) -> str:
+    """Nama modern dari ecodes. python-evdev >=1.9 me-return tuple
+    (nama_lama, alias); alias bisa None."""
+    raw = ecodes.KEY.get(code, code)
+    return str(raw[1] or raw[0]) if isinstance(raw, tuple) else str(raw)
+
+
 def cmd_watch(args: argparse.Namespace) -> int:
     if args.device:
         device = InputDevice(args.device)
@@ -125,7 +132,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
             if event.type != ecodes.EV_KEY or event.value != 1:
                 continue
             counts[event.code] = counts.get(event.code, 0) + 1
-            name = ecodes.KEY.get(event.code, f"KEY_{event.code}")
+            name = (EXPECTED_KEYS.get(event.code) or "").split(" -> ")[0] \
+                or _key_name(event.code)
             print(f"[{time.monotonic() - start:7.3f}] code={event.code:<4} "
                   f"{name:<28} value={event.value}")
             if deadline and time.monotonic() >= deadline:
@@ -138,7 +146,8 @@ def cmd_watch(args: argparse.Namespace) -> int:
     print("\nRingkasan (hanya keydown):")
     for code in sorted(counts):
         hint = EXPECTED_KEYS.get(code, "")
-        print(f"  {code:<4} {ecodes.KEY.get(code, '?'):<28} x{counts[code]}  {hint}")
+        name = (EXPECTED_KEYS.get(code) or "").split(" -> ")[0] or _key_name(code)
+        print(f"  {code:<4} {name:<28} x{counts[code]}  {hint}")
     return 0
 
 

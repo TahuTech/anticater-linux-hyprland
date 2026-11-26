@@ -389,8 +389,8 @@ def main() -> int:
     ap.add_argument("--times", type=int, default=8, help="jumlah kedip")
     args = ap.parse_args()
 
-    if args.set_led is not None and not (args.color or args.colors):
-        sys.exit("--set-led butuh --color atau --colors")
+    if args.set_led is not None and args.variant == "vk01" and not (args.color or args.colors):
+        sys.exit("--set-led (varian vk01) butuh --color atau --colors")
 
     if args.list:
         return cmd_list()
