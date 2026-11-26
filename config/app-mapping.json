@@ -3,27 +3,37 @@
     "rotate_left": {
       "type": "key",
       "description": "Kecilkan volume",
-      "keys": ["volume_down"]
+      "keys": [
+        "volume_down"
+      ]
     },
     "rotate_right": {
       "type": "key",
       "description": "Besarkan volume",
-      "keys": ["volume_up"]
+      "keys": [
+        "volume_up"
+      ]
     },
     "press": {
       "type": "key",
       "description": "Play / pause",
-      "keys": ["play_pause"]
+      "keys": [
+        "play_pause"
+      ]
     },
     "press_rotate_left": {
       "type": "key",
       "description": "Lagu sebelumnya",
-      "keys": ["previous_track"]
+      "keys": [
+        "previous_track"
+      ]
     },
     "press_rotate_right": {
       "type": "key",
       "description": "Lagu berikutnya",
-      "keys": ["next_track"]
+      "keys": [
+        "next_track"
+      ]
     }
   },
   "apps": {
@@ -31,54 +41,87 @@
       "rotate_left": {
         "type": "shortcut",
         "description": "Tab sebelumnya",
-        "keys": ["control", "shift", "tab"]
+        "keys": [
+          "control",
+          "shift",
+          "tab"
+        ]
       },
       "rotate_right": {
         "type": "shortcut",
         "description": "Tab berikutnya",
-        "keys": ["control", "tab"]
+        "keys": [
+          "control",
+          "tab"
+        ]
       },
       "press": {
         "type": "shortcut",
         "description": "Muat ulang halaman",
-        "keys": ["control", "r"]
+        "keys": [
+          "control",
+          "r"
+        ]
       },
       "press_rotate_left": {
         "type": "shortcut",
         "description": "Kembali (riwayat)",
-        "keys": ["control", "left"]
+        "keys": [
+          "control",
+          "left"
+        ]
       },
       "press_rotate_right": {
         "type": "shortcut",
         "description": "Maju (riwayat)",
-        "keys": ["control", "right"]
+        "keys": [
+          "control",
+          "right"
+        ]
       }
     },
     "code": {
       "rotate_left": {
         "type": "shortcut",
         "description": "Editor sebelumnya",
-        "keys": ["control", "pageup"]
+        "keys": [
+          "control",
+          "pageup"
+        ]
       },
       "rotate_right": {
         "type": "shortcut",
         "description": "Editor berikutnya",
-        "keys": ["control", "pagedown"]
+        "keys": [
+          "control",
+          "pagedown"
+        ]
       },
       "press": {
         "type": "shortcut",
         "description": "Palet perintah",
-        "keys": ["control", "shift", "p"]
+        "keys": [
+          "control",
+          "shift",
+          "p"
+        ]
       },
       "press_rotate_left": {
         "type": "shortcut",
         "description": "Format dokumen",
-        "keys": ["control", "shift", "f"]
+        "keys": [
+          "control",
+          "shift",
+          "f"
+        ]
       },
       "press_rotate_right": {
         "type": "shortcut",
         "description": "Cari di file",
-        "keys": ["control", "f"]
+        "keys": [
+          "control",
+          "f"
+        ]
       }
     }
   }

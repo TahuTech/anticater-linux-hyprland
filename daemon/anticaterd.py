@@ -315,50 +315,71 @@ class Actor:
     """Sintesis input via uinput + eksekusi command lewat shell."""
 
     def __init__(self, keys):
+        self._lock = threading.Lock()
+        self._keys = set(keys)
         self.ui = None
-        try:
-            self.ui = UInput(
-                events={
-                    ecodes.EV_KEY: sorted(keys),
-                    ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y,
-                                    ecodes.REL_WHEEL, ecodes.REL_HWHEEL],
-                },
-                name="anticaterd", vendor=VID_ANTICATER)
-            log.info("uinput siap: %s", self.ui.name)
-        except OSError as e:
-            log.warning("uinput gagal (%s) — aksi key/shortcut/mouse/scroll nonaktif", e)
+        self._open()
+
+    def _open(self):
+        with self._lock:
+            if self.ui is not None:
+                try:
+                    self.ui.close()
+                except OSError:
+                    pass
+            try:
+                self.ui = UInput(
+                    events={
+                        ecodes.EV_KEY: sorted(self._keys),
+                        ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y,
+                                        ecodes.REL_WHEEL, ecodes.REL_HWHEEL],
+                    },
+                    name="anticaterd", vendor=VID_ANTICATER)
+                log.info("uinput siap: %s", self.ui.name)
+            except OSError as e:
+                self.ui = None
+                log.warning("uinput gagal (%s) — aksi key/shortcut/mouse/scroll nonaktif", e)
+
+    def rebind(self, keys):
+        """Buat ulang uinput dengan keyset baru (dipakai saat config hot-reload)."""
+        self._keys = set(keys)
+        self._open()
+        log.info("uinput dibangun ulang (%d key)", len(self._keys))
 
     def chord(self, codes):
-        if self.ui is None:
-            return False
-        for c in codes:
-            self.ui.write(ecodes.EV_KEY, c, 1)
-        self.ui.syn()
-        for c in reversed(codes):
-            self.ui.write(ecodes.EV_KEY, c, 0)
-        self.ui.syn()
+        with self._lock:
+            if self.ui is None:
+                return False
+            for c in codes:
+                self.ui.write(ecodes.EV_KEY, c, 1)
+            self.ui.syn()
+            for c in reversed(codes):
+                self.ui.write(ecodes.EV_KEY, c, 0)
+            self.ui.syn()
         return True
 
     def click(self, btn=ecodes.BTN_LEFT):
-        if self.ui is None:
-            return False
-        self.ui.write(ecodes.EV_KEY, btn, 1)
-        self.ui.syn()
-        self.ui.write(ecodes.EV_KEY, btn, 0)
-        self.ui.syn()
+        with self._lock:
+            if self.ui is None:
+                return False
+            self.ui.write(ecodes.EV_KEY, btn, 1)
+            self.ui.syn()
+            self.ui.write(ecodes.EV_KEY, btn, 0)
+            self.ui.syn()
         return True
 
     def scroll(self, direction):
-        if self.ui is None:
-            return False
-        axis, val = {
-            "up": (ecodes.REL_WHEEL, -1),
-            "down": (ecodes.REL_WHEEL, 1),
-            "left": (ecodes.REL_HWHEEL, -1),
-            "right": (ecodes.REL_HWHEEL, 1),
-        }[direction]
-        self.ui.write(ecodes.EV_REL, axis, val)
-        self.ui.syn()
+        with self._lock:
+            if self.ui is None:
+                return False
+            axis, val = {
+                "up": (ecodes.REL_WHEEL, -1),
+                "down": (ecodes.REL_WHEEL, 1),
+                "left": (ecodes.REL_HWHEEL, -1),
+                "right": (ecodes.REL_HWHEEL, 1),
+            }[direction]
+            self.ui.write(ecodes.EV_REL, axis, val)
+            self.ui.syn()
         return True
 
     def run_cmd(self, argv):
@@ -368,8 +389,10 @@ class Actor:
             log.warning("command gagal %s: %s", argv, e)
 
     def close(self):
-        if self.ui is not None:
-            self.ui.close()
+        with self._lock:
+            if self.ui is not None:
+                self.ui.close()
+                self.ui = None
 
 
 def exec_action(actor, slot, act, app, dry_run):
@@ -413,6 +436,8 @@ def make_ctx(cfg, args):
     ctx.app = None
     ctx.pressed = False
     ctx.press_deadline = None
+    ctx.config_path = None
+    ctx.config_mtime = None
     ctx.led = None
     if not args.no_led and not args.dry_run:
         for path, vendor, product in hidraw_vendor_paths():
@@ -468,6 +493,7 @@ def main_loop(ctx, actor, keyboard_path):
 
     def focus_loop():
         while not stop.is_set():
+            ctx.config_mtime = maybe_reload(ctx, actor)
             cls = get_active_class()
             if cls and cls != ctx.app:
                 with lock:
@@ -523,6 +549,27 @@ def main_loop(ctx, actor, keyboard_path):
             except OSError:
                 pass
             dev.close()
+
+
+def maybe_reload(ctx, actor):
+    """Muat ulang config bila file berubah (agar edit GUI langsung aktif)."""
+    try:
+        m = Path(ctx.config_path).stat().st_mtime
+    except OSError:
+        return ctx.config_mtime
+    if m == ctx.config_mtime:
+        return m
+    ctx.config_mtime = m
+    try:
+        new = load_config(ctx.config_path)
+    except Exception as e:
+        log.warning("config gagal dimuat ulang: %s", e)
+        return m
+    ctx.cfg = new
+    actor.rebind(required_keycodes(new))
+    log.info("config dimuat ulang: %s", ctx.config_path)
+    on_profile_change(ctx, ctx.app, ctx.args.dry_run)
+    return m
 
 
 def on_profile_change(ctx, app, dry_run):
@@ -587,6 +634,11 @@ def main(argv=None):
 
     actor = Actor(keys)
     ctx = make_ctx(cfg, args)
+    ctx.config_path = str(cfg_path)
+    try:
+        ctx.config_mtime = cfg_path.stat().st_mtime
+    except OSError:
+        ctx.config_mtime = None
 
     def shutdown(signum, frame):
         log.info("menerima sinyal %d — berhenti", signum)

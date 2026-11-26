@@ -18,8 +18,8 @@ bukan bongkar ulang.
 | Probe konfig/LED (hidraw) | ✅ terverifikasi — varian CH57x/knobctl |
 | Protokol (binding + LED) | ✅ terdokumentasi — `docs/device-protocol.md` |
 | Daemon per-app (evdev → hyprctl → uinput/shell) | ✅ terverifikasi live (grab, profil, aksi, press+rotate) |
+| GUI (editor config + kontrol daemon, web lokal) | ✅ siap — `gui/anticater-gui.py` |
 | Saluran baterai USB | ❌ dongle input-only; kabel: sniff 30s = nol paket. BLE: belum ditest (`upower -d`) |
-| GUI | ⏳ rencana |
 | Packaging (PKGBUILD) | ⏳ rencana |
 
 ## Daemon per-app — `daemon/anticaterd.py`
@@ -100,6 +100,27 @@ memakai array argv (bukan string shell).
   `noop`.
 - `description` bebas, dipakai di log/GUI nanti.
 
+## GUI — `gui/anticater-gui.py`
+
+Editor `app-mapping.json` + kontrol daemon dalam satu antarmuka web lokal
+(tanpa dependensi tambahan; validasi kunci dipinjam dari daemon):
+
+```bash
+python3 gui/anticater-gui.py --open     # buka http://127.0.0.1:8099 di browser
+python3 gui/anticater-gui.py --config ~/.config/anticater/app-mapping.json
+```
+
+Fitur:
+
+- Edit 5 slot gestur per profil (global & per WM_CLASS), simpan atomik
+  (temp + rename); daemon **hot-reload** — edit langsung aktif tanpa restart
+- Template siap pakai: Browser, Menulis kode, Media, Desain, Kliping
+- Tambah app dari daftar WM_CLASS window aktif (`hyprctl clients`) atau manual
+- Tombol nyalakan/matikan daemon + log live; badge fokus window aktif
+- Aksi `command` ditulis sebagai string argv (dipecah `shlex` saat simpan)
+- Saat GUI ditutup, daemon yang GUI ini hidupkan ikut dimatikan
+  (daemon yang dijalankan terpisah tidak disentuh)
+
 ## Probe
 
 ```bash
@@ -123,6 +144,8 @@ daemon/
   anticaterd.py          daemon per-app: evdev+EVIOCGRAB → hyprctl → aksi uinput/shell + LED status
 config/
   app-mapping.json       config default (format kompatibel repo macOS)
+gui/
+  anticater-gui.py       editor web lokal + kontrol daemon (stdlib)
 probes/
   probe_evdev.py         input: gestur knob via evdev
   probe_hidraw.py        konfig: LED, query, sniff baterai, binding
