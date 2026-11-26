@@ -1,0 +1,12 @@
+# ANTICATER VK-01 — akses user ke hidraw & input tanpa sudo
+# Pasang: sudo cp 60-anticater.rules /etc/udev/rules.d/ && sudo udevadm control --reload-rules && sudo udevadm trigger
+# User juga perlu anggota grup `input`: sudo usermod -aG input $USER (lalu logout/login)
+
+# Interface vendor HID (config + LED) — kabel & dongle
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="514c", ATTRS{idProduct}=="8850", MODE="0660", GROUP="input", TAG+="uaccess"
+
+# Node event input (keyboard interface: gestur) — kabel & dongle
+SUBSYSTEM=="input", ATTRS{idVendor}=="514c", ATTRS{idProduct}=="8850", TAG+="uaccess"
+
+# Mode BLE — match berdasarkan nama device (HID over GATT tidak punya idVendor USB)
+SUBSYSTEM=="input", ATTRS{name}=="ANTICATER*", TAG+="uaccess"
