@@ -163,15 +163,16 @@ class Gui:
     def normalize(self, cfg):
         cfg.setdefault("global", {})
         cfg.setdefault("apps", {})
-        for scope in (cfg["global"],):
+        for scope in (cfg["global"], *cfg["apps"].values()):
             for s in SLOT_ORDER:
                 scope.setdefault(s, {"type": "noop", "keys": [], "description": ""})
-        for app in cfg["apps"].values():
-            for s in SLOT_ORDER:
-                app.setdefault(s, {"type": "noop", "keys": [], "description": ""})
-            for act in app.values():
+            for act in scope.values():
                 if act.get("type") == "command" and isinstance(act.get("keys"), str):
                     act["keys"] = shlex.split(act["keys"])
+                if act.get("type") == "sequence":
+                    for st in act.get("steps", []):
+                        if st.get("type") == "command" and isinstance(st.get("keys"), str):
+                            st["keys"] = shlex.split(st["keys"])
         return cfg
 
     def save(self, cfg):
@@ -346,6 +347,12 @@ PAGE = """<!doctype html>
            border-radius:6px; padding:5px 12px; cursor:pointer; }
   button:hover { border-color:var(--acc); }
   button.primary { background:var(--acc); border-color:var(--acc); color:#0b0c10; font-weight:600; }
+  button.on { border-color:var(--acc); color:var(--acc); background:#20232b; }
+  #editor { grid-column:2; grid-row:2; padding:12px; overflow-y:auto; }
+  #practicebar { grid-column:2; grid-row:1; margin:10px 16px 0; padding:8px 14px;
+                 border:1px solid var(--acc); border-radius:8px; background:#20232b;
+                 color:var(--fg); font-size:13px; display:flex; gap:8px; align-items:center; }
+  #practicebar b { color:var(--acc); }
   button:disabled { opacity:.45; cursor:default; }
   main { display:grid; grid-template-columns: 270px 1fr; gap:0; min-height:calc(100vh - 49px); }
   aside { border-right:1px solid var(--bd); padding:12px; background:var(--srf); overflow-y:auto; }
@@ -386,6 +393,10 @@ PAGE = """<!doctype html>
             color:var(--mut); font-size:12px; cursor:pointer; white-space:nowrap; }
   .record:hover { border-color:var(--acc); color:var(--fg); }
   .record.armed { border-color:var(--acc); color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
+  .steps { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
+  .steps .row label { min-width:0; }
+  .record.dx { color:var(--err); padding:2px 9px; }
+  .record.add { align-self:flex-start; border-style:dashed; color:var(--acc); }
   #savebar { position:sticky; bottom:0; display:flex; gap:10px; align-items:center;
              padding:10px 20px; background:linear-gradient(transparent, var(--bg) 35%);
              border-top:1px solid var(--bd); }
@@ -405,6 +416,7 @@ PAGE = """<!doctype html>
   <span class="badge">fokus: <b id="focus">…</b></span>
   <span class="badge"><span class="dot" id="dot"></span><span id="dstate">daemon mati</span></span>
   <span class="spacer"></span>
+  <button id="practicebtn" onclick="togglePractice()" title="Klik zona untuk melihat aksi yang akan dijalankan — tanpa fokus kartu">🛠️ Mode latihan</button>
   <button id="daemonbtn" onclick="toggleDaemon()">Nyalakan daemon</button>
 </header>
 <main>
@@ -430,6 +442,7 @@ PAGE = """<!doctype html>
       <button onclick="applyTpl()">Terapkan</button>
     </div>
   </aside>
+  <div id="practicebar" hidden>🛠️ <b id="pprofile">global</b> — gestur <b id="pgesture">…</b> akan menjalankan <b id="paction">…</b></div>
   <section id="editor"></section>
 </main>
 <div id="savebar">
@@ -448,13 +461,20 @@ const $ = id => document.getElementById(id);
 const SLOTS = ["rotate_left","rotate_right","press","press_rotate_left","press_rotate_right"];
 const SLOT_NAMES = {rotate_left:"Rotasi kiri",rotate_right:"Rotasi kanan",press:"Tekan",
   press_rotate_left:"Tekan + rotasi kiri",press_rotate_right:"Tekan + rotasi kanan"};
-const TYPES = ["key","shortcut","mouse","scroll","command","noop"];
+const TYPES = ["key","shortcut","mouse","scroll","command","sequence","noop"];
 const TYPE_COLORS = {key:"#7aa2f7", shortcut:"#7aa2f7", scroll:"#2ac3de",
-  mouse:"#bb9af7", command:"#9ece6a", noop:"#3a3d46"};
+  mouse:"#bb9af7", command:"#9ece6a", sequence:"#e0af68", noop:"#3a3d46"};
 let CFG = null, SEL = "__global__", DIRTY = false;
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",
   '"':"&quot;","'":"&#39;"}[c])); }
+
+function actSum(a){
+  if(!a || a.type === "noop") return "noop";
+  if(a.type === "sequence")
+    return "sequence " + ((a.steps||[]).length) + " langkah";
+  return a.type + ((a.keys && a.keys.length) ? " " + a.keys.join(" + ") : "");
+}
 
 function markDirty(){ if(!DIRTY){ DIRTY=true; $("savebtn").disabled=false; } }
 
@@ -476,7 +496,7 @@ function renderKnob(scope){
     const cy = z.c2 ? z.y+39 : z.y+z.h-10;
     const c2y = z.c2 ? z.y+51 : 0;
     p += '<g class="zone" data-slot="'+z.s+'" onclick="focusSlot(\\''+z.s+'\\')"><title>' +
-      esc(SLOT_NAMES[z.s]+": "+(on ? a.type+(ks ? " "+ks : "") : "noop")) + '</title>' +
+      esc(SLOT_NAMES[z.s]+": "+actSum(a)) + '</title>' +
       '<rect x="'+z.x+'" y="'+z.y+'" width="'+z.w+'" height="'+z.h+'" rx="12" fill="'+col+
       '" fill-opacity="'+(on?0.25:0.06)+'" stroke="'+col+'" stroke-width="1.5"/>' +
       '<text x="'+(z.x+z.w/2)+'" y="'+gy+'" text-anchor="middle" font-size="17" ' +
@@ -490,7 +510,7 @@ function renderKnob(scope){
   const pcol = TYPE_COLORS[pr.type] || TYPE_COLORS.noop;
   const pon = pr.type !== "noop";
   p += '<g class="zone" data-slot="press" onclick="focusSlot(\\'press\\')"><title>' +
-    esc(SLOT_NAMES["press"]+": "+(pon ? pr.type+" "+((pr.keys||[]).join(" + ")) : "noop")) + '</title>' +
+    esc(SLOT_NAMES["press"]+": "+actSum(pr)) + '</title>' +
     '<circle cx="160" cy="142" r="34" fill="'+pcol+'" fill-opacity="'+(pon?0.2:0.05)+'" stroke="'+pcol+'" stroke-width="1.5"/>' +
     '<circle cx="160" cy="142" r="10" fill="'+(pon?pcol:"#565b66")+'"/>' +
     '<text x="160" y="188" text-anchor="middle" font-size="9" style="fill:var(--mut)">tekan</text></g>';
@@ -507,10 +527,24 @@ function focusSlot(slot){
   const el = document.getElementById("slot-"+slot);
   if(!el) return;
   markSel(slot);
+  if(PRACTICE){ practicePreview(slot); return; }
   el.scrollIntoView({behavior:"smooth", block:"center"});
   const i = el.querySelector("input.keys"); if(i) i.focus();
 }
 let rec = null;
+let PRACTICE = false;
+function togglePractice(){
+  PRACTICE = !PRACTICE;
+  $("practicebtn").classList.toggle("on", PRACTICE);
+  $("practicebar").hidden = !PRACTICE;
+}
+function practicePreview(slot){
+  const scope = SEL==="__global__" ? CFG.global : (CFG.apps[SEL]||{});
+  const act = scope[slot] || {type:"noop"};
+  $("pprofile").textContent = SEL==="__global__" ? "global" : SEL;
+  $("pgesture").textContent = SLOT_NAMES[slot];
+  $("paction").textContent = act.type==="noop" ? "— (tidak ada aksi)" : actSum(act);
+}
 const RECKEY = { " ":"space", Tab:"tab", Enter:"return", Backspace:"backspace", Delete:"delete",
   ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
   Home:"home", End:"end", PageUp:"pageup", PageDown:"pagedown", Insert:"insert",
@@ -586,33 +620,82 @@ function renderEditor(){
       scope[slot].keys = []; renderEditor(); markDirty(); };
     r1.append(lb, sel); card.appendChild(r1);
 
-    const r2 = document.createElement("div"); r2.className = "row";
-    const lb2 = document.createElement("label"); lb2.textContent =
-      act.type==="command" ? "Perintah (argv)" : act.type==="mouse" ? "Tombol" :
-      act.type==="scroll" ? "Arah" : "Kunci";
-    const inp = document.createElement("input"); inp.type="text"; inp.className="keys";
-    inp.placeholder = act.type==="command" ? "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+" :
-      act.type==="mouse" ? "left|right|middle" : act.type==="scroll" ? "up|down|left|right" :
-      "control shift tab"; inp.value = (act.keys||[]).join(" ");
-    inp.oninput = () => { scope[slot] = scope[slot] || {};
-      const v = inp.value.split(/\\s+/).filter(Boolean);
-      scope[slot].keys = act.type==="command" ? inp.value : v; updateChips(); markDirty(); };
-    r2.append(lb2, inp);
-    if(act.type !== "command" && act.type !== "mouse"){
-      const rb = document.createElement("button"); rb.type="button"; rb.className="record";
-      rb.textContent = "⌨ Rekam";
-      rb.onclick = () => {
-        if(rec && rec.btn !== rb) recStop();
-        rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: updateChips};
-        rb.classList.add("armed"); rb.textContent = "Rekam… Esc batal";
-        inp.focus();
+    if(act.type === "sequence"){
+      const STYPES = ["key","shortcut","mouse","scroll","command"];
+      const stepsBox = document.createElement("div"); stepsBox.className = "steps";
+      const renderSteps = () => {
+        stepsBox.innerHTML = "";
+        scope[slot].steps = scope[slot].steps || [{type:"key", keys:[]}];
+        scope[slot].steps.forEach((st, i) => {
+          const sr = document.createElement("div"); sr.className = "row step";
+          const ts = document.createElement("select");
+          STYPES.forEach(t => { const o = document.createElement("option"); o.value=t;
+            o.textContent=t; if(t===st.type) o.selected=true; ts.appendChild(o); });
+          const ip = document.createElement("input"); ip.type="text"; ip.className="keys";
+          const refresh = () => {
+            ip.placeholder = ts.value==="command" ? "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+" :
+              ts.value==="mouse" ? "left|right|middle" : ts.value==="scroll" ? "up|down|left|right" :
+              "control shift tab";
+            ip.value = Array.isArray(st.keys) ? st.keys.join(" ") : String(st.keys||"");
+          };
+          ts.onchange = () => { st.type = ts.value;
+            st.keys = ts.value==="command" ? "" : []; refresh(); markDirty(); };
+          ip.oninput = () => { st.keys = ts.value==="command" ? ip.value :
+            ip.value.split(/\\s+/).filter(Boolean); refresh(); updateChips(); markDirty(); };
+          const dx = document.createElement("button"); dx.type="button"; dx.className="record dx";
+          dx.textContent = "✕";
+          dx.onclick = () => { scope[slot].steps.splice(i,1);
+            if(!scope[slot].steps.length) scope[slot].steps.push({type:"key", keys:[]});
+            renderSteps(); updateChips(); markDirty(); };
+          sr.append(ts, ip, dx); refresh(); stepsBox.appendChild(sr);
+        });
+        const add = document.createElement("button"); add.type="button"; add.className="record add";
+        add.textContent = "+ langkah";
+        add.onclick = () => { scope[slot].steps.push({type:"key", keys:[]});
+          renderSteps(); markDirty(); };
+        stepsBox.appendChild(add);
       };
-      r2.append(rb);
+      renderSteps();
+      card.appendChild(stepsBox);
+    } else {
+      const r2 = document.createElement("div"); r2.className = "row";
+      const lb2 = document.createElement("label"); lb2.textContent =
+        act.type==="command" ? "Perintah (argv)" : act.type==="mouse" ? "Tombol" :
+        act.type==="scroll" ? "Arah" : "Kunci";
+      const inp = document.createElement("input"); inp.type="text"; inp.className="keys";
+      inp.placeholder = act.type==="command" ? "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+" :
+        act.type==="mouse" ? "left|right|middle" : act.type==="scroll" ? "up|down|left|right" :
+        "control shift tab"; inp.value = (act.keys||[]).join(" ");
+      inp.oninput = () => { scope[slot] = scope[slot] || {};
+        const v = inp.value.split(/\\s+/).filter(Boolean);
+        scope[slot].keys = act.type==="command" ? inp.value : v; updateChips(); markDirty(); };
+      r2.append(lb2, inp);
+      if(act.type !== "command" && act.type !== "mouse"){
+        const rb = document.createElement("button"); rb.type="button"; rb.className="record";
+        rb.textContent = "⌨ Rekam";
+        rb.onclick = () => {
+          if(rec && rec.btn !== rb) recStop();
+          rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: updateChips};
+          rb.classList.add("armed"); rb.textContent = "Rekam… Esc batal";
+          inp.focus();
+        };
+        r2.append(rb);
+      }
+      card.appendChild(r2);
     }
-    card.appendChild(r2);
     const chips = document.createElement("div"); chips.className = "chips"; card.appendChild(chips);
     const updateChips = () => {
       chips.innerHTML = "";
+      if(scope[slot] && scope[slot].type === "sequence"){
+        (scope[slot].steps || []).forEach(st => {
+          const c = document.createElement("span"); c.className = "chip";
+          const ks = Array.isArray(st.keys) ? st.keys.join(" ") : String(st.keys||"");
+          c.textContent = (st.type==="key" || st.type==="shortcut") ? ks :
+            st.type + (ks ? " "+ks : "");
+          chips.appendChild(c);
+        });
+        return;
+      }
       let ks = (scope[slot] && scope[slot].keys) || [];
       if(!Array.isArray(ks)) ks = String(ks).trim() ? ks.split(/\\s+/) : [];
       (ks||[]).forEach(k => {

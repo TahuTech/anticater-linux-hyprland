@@ -113,12 +113,15 @@ def required_keycodes(config):
         keys.add(KEY_BY_NAME["KEY_F%d" % i])
     for k in config:
         for slot in config[k].values():
-            if slot.get("type") in ("key", "shortcut"):
-                for n in slot.get("keys", []):
-                    try:
-                        keys.add(keycode(n))
-                    except KeyError:
-                        pass  # divalidasi terpisah di --check-config
+            acts = [slot] if slot.get("type") != "sequence" else \
+                [st for st in slot.get("steps", []) if isinstance(st, dict)]
+            for a in acts:
+                if a.get("type") in ("key", "shortcut"):
+                    for n in a.get("keys", []):
+                        try:
+                            keys.add(keycode(n))
+                        except KeyError:
+                            pass  # divalidasi terpisah di --check-config
     return keys
 
 
@@ -246,11 +249,46 @@ def load_config(path):
     return cfg
 
 
+def check_action(app, slot, act, errs, depth=0):
+    """Validasi satu aksi; sequence divalidasi per langkah (satu level)."""
+    t = act.get("type", "noop")
+    if t not in ("key", "shortcut", "mouse", "scroll", "command", "sequence", "noop"):
+        errs.append(f"{app}/{slot}: tipe tak dikenal '{t}'")
+        return
+    if t in ("key", "shortcut", "command"):
+        keys = act.get("keys")
+        if not isinstance(keys, list) or not keys:
+            errs.append(f"{app}/{slot}: butuh 'keys' (daftar)")
+            return
+        if t in ("key", "shortcut"):
+            for n in keys:
+                try:
+                    keycode(n)
+                except KeyError:
+                    errs.append(f"{app}/{slot}: kunci tak dikenal '{n}'")
+    elif t == "scroll":
+        d = (act.get("keys") or ["down"])[0]
+        if d not in ("up", "down", "left", "right"):
+            errs.append(f"{app}/{slot}: arah scroll '{d}' tak dikenal")
+    elif t == "mouse":
+        btn = act.get("keys", ["left"])[0]
+        if btn not in ("left", "right", "middle"):
+            errs.append(f"{app}/{slot}: tombol mouse '{btn}' tak dikenal")
+    elif t == "sequence":
+        steps = act.get("steps")
+        if not isinstance(steps, list) or not steps:
+            errs.append(f"{app}/{slot}: sequence butuh 'steps' (daftar aksi)")
+            return
+        if depth > 0:
+            errs.append(f"{app}/{slot}: sequence bersarang tak didukung")
+            return
+        for i, step in enumerate(steps):
+            check_action(app, f"{slot}[{i}]", step, errs, depth + 1)
+
+
 def check_config(cfg):
     """Validasi: tipe aksi dikenal, nama kunci ada. Kembalikan daftar error."""
     errs = []
-    for app, slots in cfg["apps"].items():
-        pass
     for scope, items in (("global", [cfg["global"]]),
                          ("apps", [(k, v) for k, v in cfg["apps"].items()])):
         for entry in items:
@@ -259,29 +297,7 @@ def check_config(cfg):
             else:
                 app, slots = entry
             for slot, act in slots.items():
-                t = act.get("type", "noop")
-                if t not in ("key", "shortcut", "mouse", "scroll", "command", "noop"):
-                    errs.append(f"{app}/{slot}: tipe tak dikenal '{t}'")
-                    continue
-                if t in ("key", "shortcut", "command"):
-                    keys = act.get("keys")
-                    if not isinstance(keys, list) or not keys:
-                        errs.append(f"{app}/{slot}: butuh 'keys' (daftar)")
-                        continue
-                    if t in ("key", "shortcut"):
-                        for n in keys:
-                            try:
-                                keycode(n)
-                            except KeyError:
-                                errs.append(f"{app}/{slot}: kunci tak dikenal '{n}'")
-                elif t == "scroll":
-                    d = (act.get("keys") or ["down"])[0]
-                    if d not in ("up", "down", "left", "right"):
-                        errs.append(f"{app}/{slot}: arah scroll '{d}' tak dikenal")
-                elif t == "mouse":
-                    btn = act.get("keys", ["left"])[0]
-                    if btn not in ("left", "right", "middle"):
-                        errs.append(f"{app}/{slot}: tombol mouse '{btn}' tak dikenal")
+                check_action(app, slot, act, errs)
     return errs
 
 
@@ -510,6 +526,9 @@ def exec_action(actor, slot, act, app, dry_run):
     elif t == "command":
         actor.run_cmd(act["keys"])
         log.info("%-16s %-16s -> command %s", slot, app or "?", act["keys"])
+    elif t == "sequence":
+        for i, step in enumerate(act.get("steps") or []):
+            exec_action(actor, f"{slot}[{i+1}]", step, app, dry_run)
 
 
 # ---------- status global ----------
