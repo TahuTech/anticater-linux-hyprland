@@ -26,7 +26,8 @@ import http.server
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 sys.path.insert(0, str(REPO / "daemon"))
-from anticaterd import check_config, default_config_path  # noqa: E402
+from anticaterd import (KEY_ALIASES, KEY_BY_NAME, check_config,  # noqa: E402
+                        default_config_path, keycode, required_keycodes)
 
 DAEMON = REPO / "daemon" / "anticaterd.py"
 
@@ -103,6 +104,25 @@ TEMPLATES = {
 
 def empty_slots():
     return {s: {"type": "noop", "keys": [], "description": ""} for s in SLOT_ORDER}
+
+
+def key_table():
+    """Nama tombol yang diterima validator daemon -> [keycode, dasar].
+
+    dasar=False: lolos validator, tetapi daemon hanya mendaftarkannya ke uinput
+    bila dipakai di profil global (required_keycodes() melewati profil app)."""
+    base = required_keycodes({"global": {}, "apps": {}})
+    names = set(KEY_ALIASES)
+    names.update(n[4:].lower() for n in KEY_BY_NAME
+                 if isinstance(n, str) and n.startswith("KEY_"))
+    table = {}
+    for name in sorted(names):
+        try:
+            code = keycode(name)
+        except KeyError:
+            continue
+        table[name] = [code, code in base]
+    return table
 
 
 def hyprctl_json(*args):
@@ -572,6 +592,54 @@ PAGE = """<!doctype html>
   .row select { flex:1; }
   .steps .row select { flex:none; }
 
+  /* ---- tab tipe aksi ---- */
+  #editor { container-type:inline-size; }
+  .types { display:flex; flex-wrap:wrap; gap:var(--s1); }
+  .types button { height:32px; padding:0 var(--s3); font-size:13px; color:var(--text-muted);
+                  border-color:var(--border); background:transparent; }
+  .types button[aria-pressed=true], .types button[aria-pressed=true]:hover:not(:disabled) {
+                  color:var(--accent); border-color:var(--accent); background:var(--accent-soft);
+                  font-weight:600; }
+
+  /* ---- pemilih tombol visual ---- */
+  .kbfields { display:grid; grid-template-columns:minmax(0,1fr); gap:var(--s4); align-items:start; }
+  .picker { display:flex; flex-direction:column; gap:var(--s2); width:100%; max-width:1200px; }
+  .kbhead { display:flex; align-items:center; justify-content:space-between; gap:var(--s2);
+            flex-wrap:wrap; }
+  .kbos { display:flex; align-items:center; gap:var(--s1); }
+  .kbos button { height:28px; padding:0 var(--s2); font-size:13px; }
+  .kbmedia { display:flex; flex-wrap:wrap; gap:var(--s1); }
+  .kbmedia .kbkey { height:36px; min-width:88px; margin:0; padding:0 var(--s3); }
+  .kb { display:grid; gap:var(--s2) var(--s3); grid-template-columns:3.75fr 4fr 7.25fr;
+        grid-template-areas:"main main main" "nav num ."; }
+  .kbblock { display:grid; row-gap:var(--s1); align-content:start;
+             grid-template-rows:40px var(--s1) repeat(5,40px); }
+  .kbblock.main { grid-area:main; grid-template-columns:repeat(60,minmax(0,1fr)); }
+  .kbblock.nav { grid-area:nav; grid-template-columns:repeat(12,minmax(0,1fr)); }
+  .kbblock.num { grid-area:num; grid-template-columns:repeat(16,minmax(0,1fr)); }
+  .kbblock.nav button.kbkey { margin:0 1px; padding:0; }
+  button.kbkey { height:100%; min-width:0; margin:0 2px; padding:0 2px; overflow:hidden;
+             font-size:13px; border-radius:6px; }
+  button.kbkey.on, button.kbkey.on:hover:not(:disabled) { background:var(--accent);
+             border-color:var(--accent); color:var(--on-accent); font-weight:700; }
+  button.kbkey.blocked, button.kbkey.blocked:hover:not(:disabled) { background:transparent;
+             border:1px dashed #4d535d; color:#808692; }
+  button.kbkey.blocked[aria-disabled=true] { cursor:not-allowed; }
+  button.kbkey.blocked.on, button.kbkey.blocked.on:hover:not(:disabled) {
+             border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
+  #kbtip { position:fixed; z-index:20; max-width:300px; padding:var(--s2) var(--s3);
+           background:var(--surface-3); border:1px solid var(--border-control);
+           border-radius:var(--radius); font-size:13px; pointer-events:none; }
+  @container (min-width:640px) { .kbfields { grid-template-columns:minmax(0,3fr) minmax(0,2fr); } }
+  @container (min-width:880px) {
+    .kb { grid-template-columns:15fr 3.75fr 4fr; grid-template-areas:"main nav num"; }
+  }
+  .workspace.with-kb { --knob:400px; max-width:none; grid-template-columns:712px minmax(0,1fr); }
+  .with-kb #knobcol { padding-left:var(--s2); padding-right:var(--s2); }
+  @media (max-width:1439px) {
+    .workspace.with-kb { max-width:1200px; grid-template-columns:minmax(0,1fr); }
+  }
+
   /* ---- responsif ---- */
   @media (max-width:1279px) {
     .workspace { --knob:400px; grid-template-columns:minmax(0,1fr) 340px; }
@@ -634,7 +702,7 @@ PAGE = """<!doctype html>
   </div>
   <button id="addbtn" onclick="openAdd()" aria-label="Tambah app atau terapkan template" title="Tambah app / template" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
 </nav>
-<main>
+<main onscroll="hideTip()">
   <div class="workspace">
     <section id="knobcol" class="panel" aria-label="Knob"></section>
     <aside id="editor" class="panel" aria-label="Editor aksi"><div id="editor-inner"></div></aside>
@@ -690,6 +758,7 @@ PAGE = """<!doctype html>
     </div>
   </div>
 </dialog>
+<div id="kbtip" role="tooltip" hidden></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -698,8 +767,10 @@ const SLOT_NAMES = {rotate_left:"Putar kiri",rotate_right:"Putar kanan",press:"T
   press_rotate_left:"Tahan + putar kiri",press_rotate_right:"Tahan + putar kanan"};
 const SLOT_ICONS = {rotate_left:"ccw",rotate_right:"cw",press:"press",
   press_rotate_left:"ccw",press_rotate_right:"cw"};
-const TYPES = ["key","shortcut","mouse","scroll","command","sequence","noop"];
 const TEMPLATES = /*TEMPLATES*/null;   // diisi server dari TEMPLATES (Python)
+const KEYTABLE = /*KEYTABLE*/null;     // nama -> [keycode, dasar], diturunkan dari daemon
+const TYPE_TABS = [["shortcut","Shortcut"],["key","Tombol / Multimedia"],["mouse","Mouse"],
+  ["scroll","Scroll"],["command","Perintah"],["sequence","Urutan"],["noop","Tanpa aksi"]];
 let CFG = null, SEL = "__global__", DIRTY = false;
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",
@@ -833,6 +904,7 @@ function updateKnob(){
 
 let selSlot = "rotate_left";
 function markSel(slot){
+  if(slot !== selSlot) hideTip();
   selSlot = slot;
   if(rec && rec.slot !== slot) recStop();   // perekam tak boleh aktif di panel tersembunyi
   document.querySelectorAll(".zone").forEach(z => z.classList.toggle("sel", z.dataset.slot === slot));
@@ -840,6 +912,8 @@ function markSel(slot){
     const on = l.dataset.slot === slot;
     l.classList.toggle("sel", on); l.setAttribute("aria-pressed", on); });
   document.querySelectorAll(".slot").forEach(c => c.classList.toggle("sel", c.id === "slot-"+slot));
+  const card = $("slot-"+slot);
+  document.querySelector(".workspace").classList.toggle("with-kb", !!card && card.dataset.kb === "1");
 }
 function focusSlot(slot){
   const el = document.getElementById("slot-"+slot);
@@ -870,6 +944,205 @@ function renderPractice(){
   $("pgesture").textContent = SLOT_NAMES[PSLOT];
   $("paction").textContent = (!act.type || act.type==="noop") ? "— (tidak ada aksi)" :
     (act.description ? act.description + " (" + actSum(act) + ")" : actSum(act));
+}
+
+/* ---------- pemilih tombol visual ---------- */
+// tombol: [nama daemon, label, lebar dalam unit]; nama null = celah
+const gap = w => [null, "", w];
+const keys1 = s => s.split(" ").map(c => [c, c.toUpperCase()]);
+const KB_MAIN = [
+  [["esc","Esc"], gap(1), ...keys1("f1 f2 f3 f4"), gap(.5), ...keys1("f5 f6 f7 f8"), gap(.5),
+   ...keys1("f9 f10 f11 f12")],
+  [["backquote","`"], ...keys1("1 2 3 4 5 6 7 8 9 0"), ["minus","-"], ["equal","="],
+   ["backspace","Backspace",2]],
+  [["tab","Tab",1.5], ...keys1("q w e r t y u i o p"), ["bracketleft","["], ["bracketright","]"],
+   ["backslash","\\\\",1.5]],
+  [["capslock","Caps",1.75], ...keys1("a s d f g h j k l"), ["semicolon",";"], ["quote","'"],
+   ["return","Enter",2.25]],
+  [["shift","Shift",2.25], ...keys1("z x c v b n m"), ["comma",","], ["period","."], ["slash","/"],
+   ["shift","Shift",2.75,"R"]],
+  [["control","Ctrl",1.25], ["super","Win",1.25], ["alt","Alt",1.25], ["space","Space",6.25],
+   ["alt","Alt",1.25,"R"], ["super","Win",1.25,"R"], ["compose","Menu",1.25],
+   ["control","Ctrl",1.25,"R"]]];
+const KB_NAV = [
+  [["sysrq","PrtSc"], ["scrolllock","ScrLk"], ["pause","Pause"]],
+  [["insert","Ins"], ["home","Home"], ["pageup","PgUp"]],
+  [["delete","Del"], ["end","End"], ["pagedown","PgDn"]],
+  [],
+  [gap(1), ["up","↑"]],
+  [["left","←"], ["down","↓"], ["right","→"]]];
+// numpad: [nama, label, kolom, baris, lebar, tinggi]
+const KB_NUM = [["numlock","Num",0,1],["kpslash","/",1,1],["kpasterisk","*",2,1],["kpminus","-",3,1],
+  ["kp7","7",0,2],["kp8","8",1,2],["kp9","9",2,2],["kpplus","+",3,2,1,2],
+  ["kp4","4",0,3],["kp5","5",1,3],["kp6","6",2,3],
+  ["kp1","1",0,4],["kp2","2",1,4],["kp3","3",2,4],["kpenter","Ent",3,4,1,2],
+  ["kp0","0",0,5,2],["kpdot",".",2,5]];
+const KB_MEDIA = [["volume_down","Vol −"],["mute","Mute"],["volume_up","Vol +"],
+  ["previous_track","Sebelumnya"],["play_pause","Play / pause"],["next_track","Berikutnya"],
+  ["stop","Stop"]];
+// toggle Mac/Windows: hanya label
+const OS_LABELS = {
+  win:{control:"Ctrl", shift:"Shift", alt:"Alt", super:"Win", return:"Enter", backspace:"Backspace"},
+  mac:{control:"⌃ Ctrl", shift:"⇧ Shift", alt:"⌥ Opt", super:"⌘ Cmd", return:"Return", backspace:"Delete"}};
+let KBOS = "win";
+try{ if(localStorage.getItem("anticater.kbos") === "mac") KBOS = "mac"; }catch(e){}
+
+const MODS = ["control","shift","alt","super"];
+const RIGHT = {control:"rightctrl", shift:"rightshift", alt:"rightalt", super:"rightmeta"};
+// sama dengan keycode() daemon: trim + huruf kecil
+function keyInfo(n){
+  const k = String(n).trim().toLowerCase();
+  return Object.hasOwn(KEYTABLE, k) ? KEYTABLE[k] : null;
+}
+function keyList(k){ return Array.isArray(k) ? k.map(String) : String(k||"").split(/\\s+/).filter(Boolean); }
+function famOf(n){
+  const i = keyInfo(n); if(!i) return null;
+  return MODS.find(f => keyInfo(f)[0] === i[0] || keyInfo(RIGHT[f])[0] === i[0]) || null;
+}
+const ON_BOARD = new Set([...KB_MAIN.flat(), ...KB_NAV.flat(), ...KB_NUM, ...KB_MEDIA,
+  ...Object.values(RIGHT).map(n => [n])].map(k => k[0] && keyInfo(k[0])).filter(Boolean).map(i => i[0]));
+// keycode yang dipakai profil global: ikut didaftarkan daemon ke uinput
+function globalCodes(){
+  const out = new Set();
+  Object.values(CFG.global||{}).forEach(a => {
+    (a.type === "sequence" ? a.steps||[] : [a]).forEach(x => {
+      if(x && (x.type === "key" || x.type === "shortcut"))
+        keyList(x.keys).forEach(n => { const i = keyInfo(n); if(i) out.add(i[0]); });
+    });
+  });
+  return out;
+}
+// daftar keys baru setelah tombol 'name' diklik; lit = tombol itu sedang menyala
+function pickKey(type, keys, name, lit){
+  if(type === "key") return lit && keys.length === 1 ? [] : [name];
+  const fam = MODS.includes(name) ? name : null;
+  if(fam){
+    const rest = keys.filter(k => famOf(k) !== fam);
+    if(lit) return rest;
+    let i = rest.findIndex(k => { const f = famOf(k); return !f || MODS.indexOf(f) > MODS.indexOf(fam); });
+    if(i < 0) i = rest.length;
+    return [...rest.slice(0,i), name, ...rest.slice(i)];
+  }
+  if(lit) return keys.filter(k => !keyInfo(k) || keyInfo(k)[0] !== keyInfo(name)[0]);
+  return [...keys.filter(k => famOf(k)), name];    // ganti tombol utama, modifier tetap
+}
+// catatan untuk isi input "Kunci"
+function keyProblems(keys){
+  const unknown = [], unsent = [], off = [], inGlobal = globalCodes();
+  keys.forEach(n => {
+    const i = keyInfo(n);
+    if(!i){ unknown.push(n); return; }
+    if(SEL !== "__global__" && !i[1] && !inGlobal.has(i[0])) unsent.push(n);
+    if(!ON_BOARD.has(i[0])) off.push(n);
+  });
+  const out = [];
+  if(unknown.length) out.push("Tidak diterima daemon: " + unknown.join(", ") + ". Belum bisa disimpan.");
+  if(unsent.length) out.push("Tidak akan terkirim di profil app: " + unsent.join(", ") +
+    " (keterbatasan daemon: hanya terdaftar bila dipakai di profil global).");
+  if(off.length) out.push("Tidak ada di keyboard visual: " + off.join(", ") + " (disimpan apa adanya).");
+  return {text: out.join(" "), invalid: unknown.length > 0};
+}
+
+function showTip(btn){
+  const why = btn.dataset.why, t = $("kbtip");
+  if(!why) return hideTip();
+  t.textContent = why; t.hidden = false;
+  const r = btn.getBoundingClientRect();
+  t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8,
+    r.left + r.width/2 - t.offsetWidth/2)) + "px";
+  const top = r.top - t.offsetHeight - 6;
+  t.style.top = (top < 8 ? r.bottom + 6 : top) + "px";
+}
+function hideTip(){ $("kbtip").hidden = true; }
+function setKbOs(os){
+  KBOS = os;
+  try{ localStorage.setItem("anticater.kbos", os); }catch(e){}
+  document.querySelectorAll(".kbkey[data-mod-label]").forEach(b =>
+    b.textContent = OS_LABELS[os][b.dataset.key]);
+  document.querySelectorAll(".kbos button").forEach(b => {
+    b.classList.toggle("on", b.dataset.os === os); b.setAttribute("aria-pressed", b.dataset.os === os); });
+}
+
+// onPick(daftarBaru) dipanggil saat tombol diklik; refresh() menyorot sesuai scope[slot].keys
+function keyPicker(slot, scope, onPick){
+  const type = scope[slot].type, isGlobal = SEL === "__global__";
+  const el = document.createElement("div"); el.className = "picker";
+  el.innerHTML = '<div class="kbhead"><label>' + (type === "shortcut" ?
+      "Klik modifier untuk menyalakan/mematikan, lalu satu tombol utama" : "Klik satu tombol") +
+    '</label><span class="kbos" role="group" aria-label="Label keyboard">' +
+    '<button type="button" data-os="win">Windows</button>' +
+    '<button type="button" data-os="mac">Mac</button></span></div>' +
+    '<div class="kbmedia" role="group" aria-label="Multimedia"></div>' +
+    '<div class="kb" role="group" aria-label="Keyboard virtual"><div class="kbblock main"></div>' +
+    '<div class="kbblock nav"></div><div class="kbblock num"></div></div>' +
+    '<p class="hint kblegend">Tombol abu-abu bergaris putus-putus: keterbatasan daemon, bukan tombol ' +
+    'yang hilang. Sorot untuk keterangan.</p>';
+  el.querySelectorAll(".kbos button").forEach(b => b.onclick = () => setKbOs(b.dataset.os));
+  const buttons = [];
+  const make = (parent, name, label, side) => {
+    const b = document.createElement("button"); b.type = "button"; b.className = "kbkey";
+    b.dataset.key = name; if(side) b.dataset.side = side;
+    if(Object.hasOwn(OS_LABELS.win, name)){ b.dataset.modLabel = "1"; label = OS_LABELS[KBOS][name]; }
+    b.textContent = label;
+    b.onclick = () => {
+      if(b.getAttribute("aria-disabled") === "true"){ showTip(b); return; }
+      recStop(); hideTip();
+      onPick(pickKey(type, keyList(scope[slot].keys), name, b.classList.contains("on")));
+    };
+    b.onpointerenter = b.onfocus = () => showTip(b);
+    b.onpointerleave = b.onblur = hideTip;
+    parent.appendChild(b); buttons.push(b);
+    return b;
+  };
+  [["main", KB_MAIN], ["nav", KB_NAV]].forEach(([cls, rows]) => {
+    rows.forEach((row, r) => {
+      let col = 1;
+      row.forEach(([name, label, w = 1, side]) => {
+        if(name){
+          const b = make(el.querySelector(".kbblock."+cls), name, label, side);
+          b.style.gridColumn = col + " / span " + w*4;
+          b.style.gridRow = r === 0 ? 1 : r + 2;
+        }
+        col += w*4;
+      });
+    });
+  });
+  KB_NUM.forEach(([name, label, c, r, w = 1, h = 1]) => {
+    const b = make(el.querySelector(".kbblock.num"), name, label);
+    b.style.gridColumn = (c*4+1) + " / span " + w*4;
+    b.style.gridRow = (r+2) + " / span " + h;
+  });
+  const media = el.querySelector(".kbmedia");
+  KB_MEDIA.forEach(([name, label]) => make(media, name, label));
+
+  const refresh = () => {
+    const codes = new Set(keyList(scope[slot].keys).map(keyInfo).filter(Boolean).map(i => i[0]));
+    const inGlobal = globalCodes();
+    buttons.forEach(b => {
+      const name = b.dataset.key, i = keyInfo(name);
+      const lit = !!i && (codes.has(i[0]) ||
+        (b.dataset.side === "R" && codes.has(keyInfo(RIGHT[name])[0])));
+      let why = "";
+      if(!i) why = "Keterbatasan daemon: validator menolak “" + name + "” di sistem ini.";
+      else if(!isGlobal && !i[1]){
+        why = "Keterbatasan daemon: tombol ini hanya terkirim bila dipakai di profil global.";
+        if(lit) why = (inGlobal.has(i[0]) ? "Terkirim karena juga dipakai di profil global. " :
+          why + " ") + "Klik untuk melepas.";
+      }
+      b.classList.toggle("on", lit); b.setAttribute("aria-pressed", lit);
+      b.classList.toggle("blocked", !!why);
+      b.setAttribute("aria-disabled", !!why && !lit);
+      b.dataset.why = why;
+      if(why) b.setAttribute("aria-label", b.textContent + ". " + why);
+      else b.removeAttribute("aria-label");
+    });
+    media.hidden = !(type === "key" || KB_MEDIA.some(([n]) => keyInfo(n) && codes.has(keyInfo(n)[0])));
+    el.querySelector(".kblegend").hidden = !buttons.some(b =>
+      b.classList.contains("blocked") && !b.closest("[hidden]"));
+    el.querySelectorAll(".kbos button").forEach(b => {
+      b.classList.toggle("on", b.dataset.os === KBOS); b.setAttribute("aria-pressed", b.dataset.os === KBOS); });
+  };
+  return {el, refresh};
 }
 
 /* ---------- perekam tombol ---------- */
@@ -939,6 +1212,16 @@ function renderApps(){
   g.setAttribute("aria-current", SEL==="__global__");
 }
 
+function setType(slot, type){
+  const scope = curScope(), a = scope[slot] = scope[slot] || {};
+  if(a.type === type) return;
+  const isKeys = t => t === "key" || t === "shortcut";
+  if(!(isKeys(a.type) && isKeys(type))) a.keys = [];   // Shortcut <-> Tombol: isi dipertahankan
+  a.type = type;
+  renderEditor(); markDirty();
+  document.querySelector('#slot-'+slot+' .types [data-type="'+type+'"]').focus();
+}
+
 function field(text, control, id){
   const f = document.createElement("div"); f.className = "field";
   const lb = document.createElement("label"); lb.textContent = text; lb.htmlFor = id;
@@ -947,7 +1230,7 @@ function field(text, control, id){
 }
 
 function renderEditor(){
-  recStop();
+  recStop(); hideTip();
   const ed = $("editor-inner"); ed.innerHTML = "";
   const scope = curScope();
   $("knobcol").innerHTML = '<div class="head"><h2></h2><p></p></div>' + renderKnob();
@@ -962,12 +1245,17 @@ function renderEditor(){
     const h3 = document.createElement("h3"); h3.innerHTML = ico(SLOT_ICONS[slot]);
     h3.append(SLOT_NAMES[slot]); card.appendChild(h3);
 
-    const sel = document.createElement("select");
-    TYPES.forEach(t => { const o = document.createElement("option"); o.value=t;
-      o.textContent=t; if(t===act.type) o.selected=true; sel.appendChild(o); });
-    sel.onchange = () => { scope[slot] = scope[slot] || {}; scope[slot].type = sel.value;
-      scope[slot].keys = []; renderEditor(); markDirty(); };
-    const f1 = field("Aksi", sel, "type-"+slot); f1.append(sel); card.appendChild(f1);
+    const types = document.createElement("div"); types.className = "types";
+    types.setAttribute("role", "group"); types.setAttribute("aria-label", "Tipe aksi");
+    TYPE_TABS.forEach(([t, text]) => {
+      const b = document.createElement("button"); b.type = "button"; b.textContent = text;
+      b.dataset.type = t; b.setAttribute("aria-pressed", t === act.type);
+      b.onclick = () => setType(slot, t); types.appendChild(b);
+    });
+    card.appendChild(types);
+    const visual = act.type === "key" || act.type === "shortcut";
+    if(visual) card.dataset.kb = "1";
+    let picker = null, checkKeys = () => {}, keysField = null;
 
     if(act.type === "sequence"){
       const STYPES = ["key","shortcut","mouse","scroll","command"];
@@ -1024,7 +1312,7 @@ function renderEditor(){
       inp.oninput = () => { scope[slot] = scope[slot] || {};
         const v = inp.value.split(/\\s+/).filter(Boolean);
         scope[slot].keys = act.type==="command" ? inp.value : v;
-        note.check(act.type, scope[slot].keys); updateChips(); markDirty(); };
+        note.check(act.type, scope[slot].keys); sync(); markDirty(); };
       const f2 = field(act.type==="command" ? "Perintah (argv)" : act.type==="mouse" ? "Tombol" :
         act.type==="scroll" ? "Arah" : "Kunci", inp, "keys-"+slot);
       r2.append(inp);
@@ -1033,7 +1321,7 @@ function renderEditor(){
         rb.innerHTML = REC_IDLE();
         rb.onclick = () => {
           if(rec && rec.btn !== rb) recStop();
-          rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: updateChips};
+          rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: sync};
           rb.classList.add("armed"); rb.innerHTML = ico("keyboard") + "Rekam… Esc batal";
           inp.focus();
         };
@@ -1041,6 +1329,20 @@ function renderEditor(){
       }
       note.check(act.type, act.keys);
       f2.append(r2, note.el); card.appendChild(f2);
+      if(visual){
+        keysField = f2;
+        const kn = document.createElement("p"); kn.className = "field-note keynote";
+        kn.setAttribute("role", "status"); kn.innerHTML = ico("alert") + "<span></span>";
+        f2.append(kn);
+        checkKeys = () => {
+          const r = keyProblems(keyList(scope[slot].keys));
+          kn.hidden = !r.text; kn.lastChild.textContent = r.text;
+          inp.setAttribute("aria-invalid", r.invalid);
+        };
+        picker = keyPicker(slot, scope, list => {
+          scope[slot].keys = list; inp.value = list.join(" "); sync(); markDirty();
+        });
+      }
     }
     const chips = document.createElement("div"); chips.className = "chips"; card.appendChild(chips);
     const updateChips = () => {
@@ -1064,12 +1366,18 @@ function renderEditor(){
         chips.appendChild(c);
       });
     };
-    updateChips();
+    const sync = () => { updateChips(); checkKeys(); if(picker) picker.refresh(); };
+    sync();
 
     const d = document.createElement("input"); d.type="text"; d.className="keys";
     d.placeholder = "keterangan opsional"; d.value = act.description || "";
     d.oninput = () => { scope[slot] = scope[slot] || {}; scope[slot].description = d.value; markDirty(); };
     const f3 = field("Catatan", d, "desc-"+slot); f3.append(d); card.appendChild(f3);
+    if(picker){   // Kunci + chip dan Catatan sebaris, keyboard di bawahnya
+      keysField.append(chips);
+      const row = document.createElement("div"); row.className = "kbfields";
+      row.append(keysField, f3); card.append(row, picker.el);
+    }
     card.addEventListener("focusin", () => markSel(slot));
     ed.appendChild(card);
   }
@@ -1153,13 +1461,28 @@ async function save(){
   $("savebtn").disabled = !DIRTY;
 }
 
-function toggleDaemon(){
+let DAEMON_BUSY = false, DAEMON_TIMEOUT_MS = 10000;
+async function toggleDaemon(){
+  if(DAEMON_BUSY) return;
+  DAEMON_BUSY = true; $("daemonbtn").disabled = true;
   const start = !window.DAEMON_RUNNING;
-  fetch("/api/daemon",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({action:start?"start":"stop"})}).then(r=>r.json()).then(j=>{
-    if(j.ok) msg(j.message, false); else msg(j.message||"gagal", true);
-    poll(true);
-  });
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), DAEMON_TIMEOUT_MS);
+  let why = "", done = "";
+  try{
+    const r = await fetch("/api/daemon", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({action:start?"start":"stop"}), signal:ctl.signal});
+    const j = await r.json().catch(() => null);
+    if(ctl.signal.aborted) throw new Error("timeout");
+    if(r.ok && j && j.ok === true) done = j.message;
+    else why = (j && (j.message || j.error)) || "respons server tidak valid (HTTP " + r.status + ").";
+  }catch(e){
+    why = ctl.signal.aborted ? "server tidak menjawab dalam " + DAEMON_TIMEOUT_MS/1000 + " detik." :
+      "server GUI tidak terjangkau. Pastikan anticater-gui masih berjalan, lalu coba lagi.";
+  }
+  clearTimeout(timer); DAEMON_BUSY = false; $("daemonbtn").disabled = false;
+  if(why) msg("Gagal " + (start ? "menyalakan" : "mematikan") + " daemon: " + why, true);
+  else msg(done, false);
+  poll(true);
 }
 
 function msg(t, err){
@@ -1217,6 +1540,7 @@ fetch("/api/state").then(r=>r.json()).then(s=>{ load(s); poll(); }).catch(e=>{
 </html>
 """
 PAGE = PAGE.replace("/*TEMPLATES*/null", json.dumps(TEMPLATES))
+PAGE = PAGE.replace("/*KEYTABLE*/null", json.dumps(key_table()))
 
 
 def main(argv=None):
