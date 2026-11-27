@@ -33,7 +33,9 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 1. **Post ulang discussion Hyprland** (manual oleh user, UI web, kata-kata sendiri):
    `https://github.com/hyprwm/Hyprland/discussions/new?category=Bugs%20-%20Input`
    — template `bugs-input.yml` melarang laporan AI + 3 checkbox wajib. Draft material:
-   `docs/hyprland-repro-0.57-synthetic-input.md`. Draf lama #17114 ditutup bot (strike 1/3), hapus lewat API dilarang.
+   `docs/hyprland-repro-0.57-synthetic-input.md`; **draf suara manusia untuk diketik manual**:
+   `docs/hyprland-repro-0.57-human-draft.md` (versi runtime `hyprctl version` diambil 2026-11-27).
+   Draf lama #17114 ditutup bot (strike 1/3), hapus lewat API dilarang.
 2. ~~**Uji `hyprland 0.57.2-2.1`**~~ **SELESAI** (2026-11-27, tanpa knob): wheel **JATUH**
    → workaround PageUp/PageDown dipertahankan, profil Spotify tetap.
 3. ~~**Submit AUR**~~ **TERTUNDA — tidak ada akun AUR, dan registrasi akun AUR
