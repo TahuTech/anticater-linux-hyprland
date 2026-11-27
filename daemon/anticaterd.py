@@ -655,7 +655,11 @@ def main_loop(ctx, actor, keyboard_path):
                 continue
             if r:
                 try:
-                    events = dev.read()
+                    # dev.read() generator: fd dibaca lazy saat iterasi —
+                    # try harus mencakup loop, bukan hanya pembuatan generator
+                    for e in dev.read():
+                        if e.type == ecodes.EV_KEY:
+                            handle_key(ctx, actor, e.code, e.value)
                 except OSError:
                     try:
                         dev.close()
@@ -663,9 +667,6 @@ def main_loop(ctx, actor, keyboard_path):
                         pass
                     dev = None
                     continue
-                for e in events:
-                    if e.type == ecodes.EV_KEY:
-                        handle_key(ctx, actor, e.code, e.value)
             if ctx.press_deadline is not None and time.monotonic() >= ctx.press_deadline:
                 ctx.press_deadline = None
                 act = resolve_actions(ctx.cfg, ctx.app)["press"]
