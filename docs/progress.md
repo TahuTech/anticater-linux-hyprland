@@ -36,11 +36,13 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
    `docs/hyprland-repro-0.57-synthetic-input.md`. Draf lama #17114 ditutup bot (strike 1/3), hapus lewat API dilarang.
 2. ~~**Uji `hyprland 0.57.2-2.1`**~~ **SELESAI** (2026-11-27, tanpa knob): wheel **JATUH**
    → workaround PageUp/PageDown dipertahankan, profil Spotify tetap.
-3. **Submit AUR**: repo `anticater-linux-hyprland-git` **belum ada** di AUR (ls-remote:
-   host key rejection — belum pernah dibuat/di-push). User perlu: buat paket via
-   https://aur.archlinux.org/packages (login TahuTech) → tambah SSH key `~/.ssh/id_ed25519.pub`
-   ke akun → baru `makepkg --printsrcinfo > .SRCINFO` + push (semua tanpa knob, bisa dari kantor).
-   Setelah terpasang: ganti path di `custom.lua` ke `/usr/bin/anticaterd`.
+3. ~~**Submit AUR**~~ **TERTUNDA — tidak ada akun AUR, dan registrasi akun AUR
+   sedang ditutup** (dipause Arch; user tidak punya akun). `.SRCINFO` + PKGBUILD
+   (`r1.g6a8309b`) sudah siap di `packaging/`. Sampai registrasi dibuka:
+   **pasang lokal** `cd packaging && makepkg -si` (tanpa akun; PKGBUILD sudah
+   terverifikasi `makepkg -f`). Setelah terpasang: ganti path di `custom.lua`
+   ke `/usr/bin/anticaterd`. Submit AUR bisa menyusul saat pendaftaran dibuka
+   (perlu: akun + SSH key `~/.ssh/id_ed25519.pub` + push).
 4. **BLE battery**: `upower -d` (dongle input-only; kabel nol paket — belum ditest).
 5. **Catatan saat lanjut**: sempat terlihat 2 perangkat uinput `anticaterd`/`anticaterd-2` (dua
    instance?) dan service `o2ctl` `anticaterd` exited (crash cabut-knob, sudah difix). Instance
