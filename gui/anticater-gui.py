@@ -228,6 +228,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
         body = json.dumps(obj).encode() if not isinstance(obj, (bytes, str)) else \
             obj.encode() if isinstance(obj, str) else obj
         self.send_response(code)
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
@@ -381,6 +382,10 @@ PAGE = """<!doctype html>
           padding:2px 8px; font-family:ui-monospace,monospace; font-size:12px; color:#cdd3dc; }
   .slot { transition:box-shadow .2s; }
   .slot.sel { box-shadow:0 0 0 2px var(--acc); }
+  .record { background:#14151a; border:1px solid #3a3f4a; border-radius:5px; padding:4px 10px;
+            color:var(--mut); font-size:12px; cursor:pointer; white-space:nowrap; }
+  .record:hover { border-color:var(--acc); color:var(--fg); }
+  .record.armed { border-color:var(--acc); color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
   #savebar { position:sticky; bottom:0; display:flex; gap:10px; align-items:center;
              padding:10px 20px; background:linear-gradient(transparent, var(--bg) 35%);
              border-top:1px solid var(--bd); }
@@ -505,6 +510,40 @@ function focusSlot(slot){
   el.scrollIntoView({behavior:"smooth", block:"center"});
   const i = el.querySelector("input.keys"); if(i) i.focus();
 }
+let rec = null;
+const RECKEY = { " ":"space", Tab:"tab", Enter:"return", Backspace:"backspace", Delete:"delete",
+  ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
+  Home:"home", End:"end", PageUp:"pageup", PageDown:"pagedown", Insert:"insert",
+  AudioVolumeUp:"volume_up", AudioVolumeDown:"volume_down", AudioVolumeMute:"mute",
+  MediaPlayPause:"play_pause", MediaTrackNext:"next_track", MediaTrackPrevious:"previous_track",
+  MediaStop:"stop", ",":"comma", ".":"period", "/":"slash", ";":"semicolon", "'":"quote",
+  "`":"backquote", "-":"minus", "=":"equal", "[":"bracketleft", "]":"bracketright" };
+function recStop(){
+  if(rec){ rec.btn.textContent = "⌨ Rekam"; rec.btn.classList.remove("armed"); rec = null; }
+}
+document.addEventListener("keydown", e => {
+  if(!rec) return;
+  e.preventDefault(); e.stopPropagation();
+  if(e.repeat) return;
+  if(e.key === "Escape"){ recStop(); return; }
+  let name = RECKEY[e.key];
+  if(!name && e.key.length===1 && /^[a-z0-9]$/i.test(e.key)) name = e.key.toLowerCase();
+  if(!name && /^F([1-9]|1[0-2])$/i.test(e.key)) name = e.key.toLowerCase();
+  if(!name) return;
+  const ks = [];
+  if(e.ctrlKey) ks.push("control");
+  if(e.shiftKey) ks.push("shift");
+  if(e.altKey) ks.push("alt");
+  if(e.metaKey) ks.push("super");
+  ks.push(name);
+  const {slot, inp, upd, scope} = rec;
+  scope[slot] = scope[slot] || {};
+  scope[slot].keys = ks;
+  inp.value = ks.join(" ");
+  upd(); markDirty();
+  recStop();
+  inp.focus();
+});
 
 function select(app, btn){
   SEL = app;
@@ -558,7 +597,19 @@ function renderEditor(){
     inp.oninput = () => { scope[slot] = scope[slot] || {};
       const v = inp.value.split(/\\s+/).filter(Boolean);
       scope[slot].keys = act.type==="command" ? inp.value : v; updateChips(); markDirty(); };
-    r2.append(lb2, inp); card.appendChild(r2);
+    r2.append(lb2, inp);
+    if(act.type !== "command" && act.type !== "mouse"){
+      const rb = document.createElement("button"); rb.type="button"; rb.className="record";
+      rb.textContent = "⌨ Rekam";
+      rb.onclick = () => {
+        if(rec && rec.btn !== rb) recStop();
+        rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: updateChips};
+        rb.classList.add("armed"); rb.textContent = "Rekam… Esc batal";
+        inp.focus();
+      };
+      r2.append(rb);
+    }
+    card.appendChild(r2);
     const chips = document.createElement("div"); chips.className = "chips"; card.appendChild(chips);
     const updateChips = () => {
       chips.innerHTML = "";
