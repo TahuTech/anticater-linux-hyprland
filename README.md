@@ -38,6 +38,13 @@ LED ring (saat kabel): hijau = profil global, pelangi = profil app; mati saat da
   Klik/scroll otomatis mengarahkan pointer ke tengah window aktif lalu
   mengembalikannya — gestur selalu mengenai app fokus, bukan app di bawah
   kursor (lewat `hyprctl cursorpos` + `hl.dsp.cursor.move`).
+
+  > **Catatan Hyprland ≥ 0.55** (diverifikasi di 0.57.2, CachyOS): button &
+  > axis dari perangkat sintetis (uinput) **tidak dikirim ke aplikasi**
+  > (regresi compositor, lihat hyprwm/Hyprland #15423 — motion & key tetap
+  > jalan). Untuk scroll di profil app, pakai `key` PageUp/PageDown, bukan
+  > `scroll`; `mouse`/`scroll` tetap didukung untuk environment lain
+  > (X11, Hyprland lama).
 - **Profil**: `apps[WM_CLASS]` → `apps[wmclass.lower()]` → `global`.
   `kitty`, `brave-browser`, `code` (VS Code), dll — kunci bebas isi sendiri.
 - **Press+rotate**: aksi `press` ditunda 180 ms; jika rotasi datang saat knob
@@ -89,6 +96,10 @@ memakai array argv (bukan string shell).
       "press":             { "type": "shortcut", "keys": ["control", "r"] },
       "press_rotate_left": { "type": "shortcut", "keys": ["control", "left"] },
       "press_rotate_right":{ "type": "shortcut", "keys": ["control", "right"] }
+    },
+    "Spotify": {
+      "rotate_left":       { "type": "key", "keys": ["pageup"] },
+      "rotate_right":      { "type": "key", "keys": ["pagedown"] }
     }
   }
 }

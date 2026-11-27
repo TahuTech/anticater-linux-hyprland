@@ -126,17 +126,17 @@
     },
     "Spotify": {
       "rotate_left": {
-        "type": "scroll",
-        "description": "Gulir ke atas",
+        "type": "key",
+        "description": "Gulir ke atas (PageUp)",
         "keys": [
-          "up"
+          "pageup"
         ]
       },
       "rotate_right": {
-        "type": "scroll",
-        "description": "Gulir ke bawah",
+        "type": "key",
+        "description": "Gulir ke bawah (PageDown)",
         "keys": [
-          "down"
+          "pagedown"
         ]
       }
     }
