@@ -455,8 +455,8 @@ function renderKnob(scope){
   const Z = [
     {s:"rotate_left",        x:6,   y:114, w:46, h:56, g:"◀", c:"kiri"},
     {s:"rotate_right",       x:268, y:114, w:46, h:56, g:"▶", c:"kanan"},
-    {s:"press_rotate_left",  x:86,  y:26,  w:52, h:44, g:"↺", c:"t+kiri"},
-    {s:"press_rotate_right", x:182, y:26,  w:52, h:44, g:"↻", c:"t+kanan"}
+    {s:"press_rotate_left",  x:74,  y:16,  w:60, h:54, g:"⟲", c:"tahan+putar", c2:"kiri"},
+    {s:"press_rotate_right", x:186, y:16,  w:60, h:54, g:"⟳", c:"tahan+putar", c2:"kanan"}
   ];
   let p = '<div class="knobwrap"><svg viewBox="0 0 320 240">' +
     '<circle cx="160" cy="142" r="64" style="fill:#14151a;stroke:var(--bd)"/>';
@@ -465,14 +465,19 @@ function renderKnob(scope){
     const col = TYPE_COLORS[a.type] || TYPE_COLORS.noop;
     const on = a.type !== "noop";
     const ks = (a.keys||[]).join(" + ");
+    const gy = z.c2 ? z.y+24 : z.y+z.h/2+4;
+    const cy = z.c2 ? z.y+39 : z.y+z.h-10;
+    const c2y = z.c2 ? z.y+51 : 0;
     p += '<g class="zone" onclick="focusSlot(\\''+z.s+'\\')"><title>' +
       esc(SLOT_NAMES[z.s]+": "+(on ? a.type+(ks ? " "+ks : "") : "noop")) + '</title>' +
       '<rect x="'+z.x+'" y="'+z.y+'" width="'+z.w+'" height="'+z.h+'" rx="12" fill="'+col+
       '" fill-opacity="'+(on?0.25:0.06)+'" stroke="'+col+'" stroke-width="1.5"/>' +
-      '<text x="'+(z.x+z.w/2)+'" y="'+(z.y+z.h/2+4)+'" text-anchor="middle" font-size="18" ' +
+      '<text x="'+(z.x+z.w/2)+'" y="'+gy+'" text-anchor="middle" font-size="17" ' +
       'font-family="ui-monospace,monospace,sans-serif" fill="'+(on?col:"#565b66")+'">'+z.g+'</text>' +
-      '<text x="'+(z.x+z.w/2)+'" y="'+(z.y+z.h-10)+'" text-anchor="middle" font-size="9" ' +
-      'style="fill:var(--mut)">'+z.c+'</text></g>';
+      '<text x="'+(z.x+z.w/2)+'" y="'+cy+'" text-anchor="middle" font-size="9" ' +
+      'style="fill:var(--mut)">'+z.c+'</text>' +
+      (z.c2 ? '<text x="'+(z.x+z.w/2)+'" y="'+c2y+'" text-anchor="middle" font-size="9" ' +
+        'style="fill:var(--mut)">'+z.c2+'</text>' : '') + '</g>';
   }
   const pr = scope["press"] || {type:"noop"};
   const pcol = TYPE_COLORS[pr.type] || TYPE_COLORS.noop;
