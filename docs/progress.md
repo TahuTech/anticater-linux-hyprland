@@ -30,12 +30,12 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 
 ## Pending / Next Steps
 
-1. **Post ulang discussion Hyprland** (manual oleh user, UI web, kata-kata sendiri):
-   `https://github.com/hyprwm/Hyprland/discussions/new?category=Bugs%20-%20Input`
-   — template `bugs-input.yml` melarang laporan AI + 3 checkbox wajib. Draft material:
-   `docs/hyprland-repro-0.57-synthetic-input.md`; **draf suara manusia untuk diketik manual**:
-   `docs/hyprland-repro-0.57-human-draft.md` (versi runtime `hyprctl version` diambil 2026-11-27).
-   Draf lama #17114 ditutup bot (strike 1/3), hapus lewat API dilarang.
+1. ~~**Post ulang discussion Hyprland**~~ **TERKIRIM** — https://github.com/hyprwm/Hyprland/discussions/17115
+   (judul: "Buttons and wheel event from device input never reach (motion and keys works)"),
+   open, belum ada komentar bot (cek 2026-11-27). Jika ditutup: tulis ulang lagi, jangan copas
+   (template larang AI; draf lama #17114 masih ada, 2 komentar — kemungkinan penutupan bot).
+   Materi: `docs/hyprland-repro-0.57-synthetic-input.md` + draf suara manusia
+   `docs/hyprland-repro-0.57-human-draft.md` (versi runtime `hyprctl version` 2026-11-27).
 2. ~~**Uji `hyprland 0.57.2-2.1`**~~ **SELESAI** (2026-11-27, tanpa knob): wheel **JATUH**
    → workaround PageUp/PageDown dipertahankan, profil Spotify tetap.
 3. ~~**Submit AUR**~~ **TERTUNDA — tidak ada akun AUR, dan registrasi akun AUR
