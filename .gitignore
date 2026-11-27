@@ -7,3 +7,6 @@ dist/
 *.log
 .DS_Store
 config/*.local.json
+packaging/src/
+packaging/pkg/
+packaging/*.pkg.tar.zst

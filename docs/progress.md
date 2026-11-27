@@ -6,6 +6,11 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 > JATUH (same as 0.57.2-2). Workaround PageUp/PageDown dipertahankan; profil
 > Spotify tidak diubah. Detail: lihat "Probe uji wheel" + Pending #2.
 
+> **Sesi rumah 2026-11-27**: tipe aksi `sequence` (kantor) diuji 8 kasus — 2 bug
+> diperbaiki (dry-run tidak menurun ke step; langkah non-dict bisa crash
+> `AttributeError`). Daemon direstart dengan kode baru (grab knob OK).
+> GUI smoke HTTP 200; `makepkg -f` OK. Detail lihat tabel Selesai.
+
 ## Selesai ✅
 
 | Item | Detail |
@@ -17,6 +22,9 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 | Repro Hyprland | Draft sesuai template `bugs-input` (post manual, lihat Pending). `d927ebc` |
 | Ketahanan cabut/colok | Fix crash saat device hilang (`select` di luar guard → EBADF menembus; sekarang select & read keduanya dijaga, fd ditutup, loop reconnect). Commit ini |
 | Probe uji wheel | `probes/probe_synthetic_input.py` — sekali-jalan, tanpa knob (injeksi uinput): veredik wheel SAMPAI/JATUH (exit 0/1). 3× di 0.57.2 + 1× di **0.57.2-2.1** (2026-11-27, dari kantor): wheel JATUH konsisten |
+| Tipe aksi `sequence` | Daemon: langkah `key`/`shortcut`/`mouse`/`scroll`/`command` berurutan (e6381b3, kantor). Diuji 8 kasus (2026-11-27): validasi, sequence bersarang ditolak, kunci/tipe tak dikenal, urutan dry-run per-step, eksekusi mock urut, langkah rusak aman. Fix: dry-run menurun ke step + guard langkah non-dict (sebelumnya crash). Commit ini |
+| Restart daemon | Instance kode lama (881157) dimatikan; kode baru jalan 2026-11-27: config 3 app OK, uinput siap, grab `/dev/input/event6` (knob) OK |
+| Build package | `makepkg -f` OK (`e6381b3-1`); pkgver dari `pkgver()` (git describe); `.SRCINFO` disinkronkan; artefak build masuk `.gitignore` |
 
 ## Environment (penting untuk sesi berikut)
 
@@ -46,10 +54,10 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
    ke `/usr/bin/anticaterd`. Submit AUR bisa menyusul saat pendaftaran dibuka
    (perlu: akun + SSH key `~/.ssh/id_ed25519.pub` + push).
 4. **BLE battery**: `upower -d` (dongle input-only; kabel nol paket — belum ditest).
-5. **Catatan saat lanjut**: sempat terlihat 2 perangkat uinput `anticaterd`/`anticaterd-2` (dua
-   instance?) dan service `o2ctl` `anticaterd` exited (crash cabut-knob, sudah difix). Instance
-   live berjalan dengan kode lama — restart sekali dengan kode fix bila knob dipakai terus.
-   Saat ini daemon **tidak jalan** (`pgrep` kosong) — tidak ada knob, tidak perlu.
+5. **Catatan saat lanjut**: daemon kini jalan dengan **kode baru** (restart 2026-11-27,
+   pid 973898, grab knob OK) — bukan lagi kode crash-era. Sempat terlihat 2 perangkat
+   uinput `anticaterd`/`anticaterd-2` (dua instance?) — pastikan hanya satu instance
+   saat cek `pgrep -af anticaterd`.
 6. Cleanup `/tmp`: sudah bersih (dicek 2026-11-27, tidak ada `/tmp/mkpkg*`/`/tmp/repro_body.md`).
 
 ## Referensi bug Hyprland

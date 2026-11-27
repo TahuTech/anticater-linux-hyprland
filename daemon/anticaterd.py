@@ -283,6 +283,9 @@ def check_action(app, slot, act, errs, depth=0):
             errs.append(f"{app}/{slot}: sequence bersarang tak didukung")
             return
         for i, step in enumerate(steps):
+            if not isinstance(step, dict):
+                errs.append(f"{app}/{slot}[{i}]: langkah bukan objek aksi")
+                continue
             check_action(app, f"{slot}[{i}]", step, errs, depth + 1)
 
 
@@ -489,9 +492,19 @@ class Actor:
 
 
 def exec_action(actor, slot, act, app, dry_run):
+    if not isinstance(act, dict):
+        log.warning("%s/%s: lewati aksi bukan objek", app, slot)
+        return
     t = act.get("type", "noop")
     desc = act.get("description", "")
     if t == "noop":
+        return
+    if t == "sequence":
+        for i, step in enumerate(act.get("steps") or []):
+            if not isinstance(step, dict):
+                log.warning("%s/%s: lewati langkah %d bukan objek aksi", app, slot, i + 1)
+                continue
+            exec_action(actor, f"{slot}[{i+1}]", step, app, dry_run)
         return
     if dry_run:
         log.info("[dry-run] %-16s %-16s -> %s %s", slot, app or "?", t,
@@ -526,9 +539,6 @@ def exec_action(actor, slot, act, app, dry_run):
     elif t == "command":
         actor.run_cmd(act["keys"])
         log.info("%-16s %-16s -> command %s", slot, app or "?", act["keys"])
-    elif t == "sequence":
-        for i, step in enumerate(act.get("steps") or []):
-            exec_action(actor, f"{slot}[{i+1}]", step, app, dry_run)
 
 
 # ---------- status global ----------

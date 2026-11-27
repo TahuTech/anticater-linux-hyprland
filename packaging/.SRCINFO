@@ -1,6 +1,6 @@
 pkgbase = anticater-linux-hyprland-git
 	pkgdesc = Daemon kontrol knob ANTICATER VK-01 untuk Hyprland: gestur knob -> aksi per-aplikasi (evdev grab + uinput/hyprctl), GUI editor config, probe HID
-	pkgver = r1.g6a8309b
+	pkgver = e6381b3
 	pkgrel = 1
 	url = https://github.com/TahuTech/anticater-linux-hyprland
 	arch = any
