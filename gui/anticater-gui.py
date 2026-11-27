@@ -329,84 +329,107 @@ PAGE = """<!doctype html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ANTICATER — kontrol knob</title>
 <style>
-  :root { color-scheme: dark; --fg:#e8e8e8; --mut:#9aa0a6; --bg:#17181c; --srf:#202228;
-          --bd:#2f323a; --acc:#7aa2f7; --ok:#9ece6a; --err:#f7768e; }
+  :root { color-scheme: dark;
+    --fg: #dcd7ce; --mut: #6e6f74; --bg: #0d0e10; --srf: #151619;
+    --elv: #1c1d21; --bd: #2a2b2e; --acc: #c4a86c; --acc2: #5a6e82;
+    --ok: #7fa882; --err: #c4746e;
+    --key: #7a9ec0; --scroll: #6b9e8a; --mouse: #9b8ab8;
+    --cmd: #8a9e78; --seq: #c49560; }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--fg);
-         font:14px/1.5 system-ui, sans-serif; }
-  header { display:flex; align-items:center; gap:12px; padding:10px 16px;
-           border-bottom:1px solid var(--bd); background:var(--srf); position:sticky; top:0; }
-  header h1 { font-size:15px; margin:0; font-weight:600; }
+         font:13px/1.5 system-ui, -apple-system, sans-serif; }
+  header { display:flex; align-items:center; gap:12px; padding:8px 16px;
+           border-bottom:1px solid var(--bd); background:var(--srf);
+           position:sticky; top:0; z-index:10; }
+  header h1 { font-size:13px; margin:0; font-weight:500; letter-spacing:-.01em;
+              color:var(--mut); }
+  header h1::before { content:"● "; color:var(--acc); }
   .spacer { flex:1; }
-  .badge { background:#14151a; border:1px solid var(--bd); border-radius:6px;
-           padding:2px 10px; font-family:ui-monospace,monospace; font-size:12px; }
-  .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
-         background:var(--err); margin-right:6px; }
+  .badge { background:var(--elv); border:1px solid var(--bd); border-radius:4px;
+           padding:1px 9px; font-family:ui-monospace,SF Mono,monospace; font-size:11px; }
+  .dot { display:inline-block; width:6px; height:6px; border-radius:50%;
+         background:var(--err); margin-right:5px; }
   .dot.on { background:var(--ok); }
-  button { background:#262a33; color:var(--fg); border:1px solid var(--bd);
-           border-radius:6px; padding:5px 12px; cursor:pointer; }
+  button { background:var(--elv); color:var(--fg); border:1px solid var(--bd);
+           border-radius:4px; padding:4px 11px; cursor:pointer;
+           font-family:system-ui,-apple-system,sans-serif; font-size:12px;
+           transition:border-color .12s; }
   button:hover { border-color:var(--acc); }
-  button.primary { background:var(--acc); border-color:var(--acc); color:#0b0c10; font-weight:600; }
-  button.on { border-color:var(--acc); color:var(--acc); background:#20232b; }
-  #editor { grid-column:2; grid-row:2; padding:12px; overflow-y:auto; }
-  #practicebar { grid-column:2; grid-row:1; margin:10px 16px 0; padding:8px 14px;
-                 border:1px solid var(--acc); border-radius:8px; background:#20232b;
-                 color:var(--fg); font-size:13px; display:flex; gap:8px; align-items:center; }
+  button.primary { background:var(--acc); border-color:var(--acc);
+                   color:#0d0e10; font-weight:600; }
+  button.on { border-color:var(--acc); color:var(--acc); background:var(--elv); }
+  #editor { grid-column:2; grid-row:2; padding:0; overflow-y:auto;
+            display:flex; justify-content:center; }
+  #editor-inner { width:100%; max-width:640px; padding:20px; }
+  #practicebar { grid-column:2; grid-row:1; margin:10px 16px 0; padding:7px 14px;
+                 border:1px solid var(--acc); border-radius:4px; background:var(--elv);
+                 color:var(--fg); font-size:12px; display:flex; gap:8px; align-items:center; }
   #practicebar b { color:var(--acc); }
-  button:disabled { opacity:.45; cursor:default; }
-  main { display:grid; grid-template-columns: 270px 1fr; gap:0; min-height:calc(100vh - 49px); }
-  aside { border-right:1px solid var(--bd); padding:12px; background:var(--srf); overflow-y:auto; }
-  aside h2 { font-size:11px; text-transform:uppercase; letter-spacing:.08em;
-             color:var(--mut); margin:14px 0 6px; }
+  button:disabled { opacity:.4; cursor:default; }
+  main { display:grid; grid-template-columns: 240px 1fr; gap:0; min-height:calc(100vh - 43px); }
+  aside { border-right:1px solid var(--bd); padding:10px 12px; background:var(--srf); overflow-y:auto; }
+  aside h2 { font-size:10px; text-transform:uppercase; letter-spacing:.1em;
+             color:var(--mut); margin:16px 0 6px; font-weight:500; }
   .app { display:flex; align-items:center; justify-content:space-between; width:100%;
-         background:none; border:1px solid transparent; border-radius:6px;
-         padding:6px 8px; margin:2px 0; text-align:left; font-family:ui-monospace,monospace; }
+         background:none; border:1px solid transparent; border-radius:4px;
+         padding:5px 8px; margin:1px 0; text-align:left;
+         font-family:system-ui,-apple-system,sans-serif; font-size:12px;
+         transition:border-color .1s; }
   .app:hover { border-color:var(--bd); }
-  .app.active { border-color:var(--acc); background:#20232b; }
-  .app .x { color:var(--mut); margin-left:8px; font-size:11px; }
+  .app.active { border-color:var(--acc); background:#1a1b1d; }
+  .app .x { color:var(--mut); margin-left:6px; font-size:10px; font-family:ui-monospace,monospace; }
   .app .x:hover { color:var(--err); }
-  .addrow { display:flex; gap:6px; margin-top:8px; }
-  .addrow input { flex:1; background:#14151a; border:1px solid var(--bd); color:var(--fg);
-                  border-radius:6px; padding:5px 8px; font-family:ui-monospace,monospace; }
-  section { padding:16px 20px; overflow-y:auto; }
-  .slot { border:1px solid var(--bd); border-radius:8px; padding:12px 14px;
-          margin-bottom:10px; background:var(--srf); }
-  .slot h3 { margin:0 0 8px; font-size:13px; }
+  .addrow { display:flex; gap:5px; margin-top:8px; }
+  .addrow input { flex:1; background:var(--elv); border:1px solid var(--bd); color:var(--fg);
+                  border-radius:4px; padding:4px 7px; font-family:ui-monospace,monospace; font-size:11px; }
+  section { padding:0; overflow-y:auto; }
+  .slot { border:1px solid var(--bd); border-radius:4px; padding:14px 16px;
+          margin-bottom:10px; background:var(--srf);
+          transition:border-color .12s; }
+  .slot h3 { margin:0 0 10px; font-size:12px; font-weight:500; color:var(--mut);
+             text-transform:uppercase; letter-spacing:.06em; }
   .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .row label { color:var(--mut); font-size:12px; min-width:90px; }
-  select, input[type=text] { background:#14151a; border:1px solid var(--bd); color:var(--fg);
-          border-radius:6px; padding:5px 8px; font-family:ui-monospace,monospace; font-size:12px; }
-  input[type=text].keys { min-width:280px; flex:1; }
-  .hint { color:var(--mut); font-size:11px; margin-top:4px; }
-  .knobwrap { display:flex; justify-content:center; margin-bottom:16px; }
-  .knobwrap svg { width:100%; max-width:340px; height:auto; }
-  .zone { cursor:pointer; transition:filter .15s; }
-  .zone:hover rect, .zone:hover circle { stroke-width:2.5; }
-  .zone.sel rect, .zone.sel circle { stroke:var(--acc); stroke-width:2.5; }
-  .zone.sel { filter:drop-shadow(0 0 6px var(--acc)); }
-  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
-  .chip { background:#14151a; border:1px solid #3a3f4a; border-bottom-width:2px; border-radius:5px;
-          padding:2px 8px; font-family:ui-monospace,monospace; font-size:12px; color:#cdd3dc; }
-  .slot { transition:box-shadow .2s; }
-  .slot.sel { box-shadow:0 0 0 2px var(--acc); }
-  .record { background:#14151a; border:1px solid #3a3f4a; border-radius:5px; padding:4px 10px;
-            color:var(--mut); font-size:12px; cursor:pointer; white-space:nowrap; }
+  .row label { color:var(--mut); font-size:11px; min-width:80px; }
+  select, input[type=text] { background:var(--elv); border:1px solid var(--bd); color:var(--fg);
+          border-radius:4px; padding:4px 7px; font-family:ui-monospace,SF Mono,monospace;
+          font-size:11px; }
+  select:focus, input[type=text]:focus { outline:none; border-color:var(--acc); }
+  input[type=text].keys { min-width:260px; flex:1; }
+  .hint { color:var(--mut); font-size:10px; margin-top:4px; }
+  .knobwrap { display:flex; justify-content:center; margin-bottom:20px; }
+  .knobwrap svg { width:100%; max-width:320px; height:auto; }
+  .zone { cursor:pointer; }
+  .zone:hover rect, .zone:hover circle, .zone:hover path { stroke-width:2; }
+  .zone.sel rect, .zone.sel circle, .zone.sel path, .zone.sel polygon { stroke:var(--acc); stroke-width:2; }
+  .zone.sel { filter:none; }
+  .zone.sel text { fill:var(--acc); }
+  .chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+  .chip { background:var(--elv); border:1px solid var(--bd); border-radius:3px;
+          padding:2px 7px; font-family:ui-monospace,SF Mono,monospace;
+          font-size:11px; color:var(--fg); }
+  .slot { transition:border-color .12s; }
+  .slot.sel { border-color:var(--acc); }
+  #editor-inner h2 { font-size:14px; font-weight:500; margin:0 0 16px; color:var(--fg); }
+  .record { background:var(--elv); border:1px solid var(--bd); border-radius:3px; padding:3px 9px;
+            color:var(--mut); font-size:11px; cursor:pointer; white-space:nowrap; }
   .record:hover { border-color:var(--acc); color:var(--fg); }
-  .record.armed { border-color:var(--acc); color:var(--acc); box-shadow:0 0 0 1px var(--acc); }
-  .steps { display:flex; flex-direction:column; gap:6px; margin:6px 0 10px; }
+  .record.armed { border-color:var(--acc); color:var(--acc); }
+  .steps { display:flex; flex-direction:column; gap:5px; margin:6px 0 8px; }
   .steps .row label { min-width:0; }
-  .record.dx { color:var(--err); padding:2px 9px; }
-  .record.add { align-self:flex-start; border-style:dashed; color:var(--acc); }
+  .record.dx { color:var(--err); padding:2px 8px; font-size:10px; }
+  .record.add { align-self:flex-start; border-style:dashed; color:var(--mut); }
+  .record.add:hover { color:var(--acc); }
   #savebar { position:sticky; bottom:0; display:flex; gap:10px; align-items:center;
-             padding:10px 20px; background:linear-gradient(transparent, var(--bg) 35%);
+             padding:8px 20px; background:linear-gradient(transparent, var(--bg) 35%);
              border-top:1px solid var(--bd); }
-  #savebar .msg { color:var(--err); font-size:12px; }
-  #logbox { position:fixed; right:0; bottom:0; width:440px; max-height:40vh;
-            background:#0d0e11; border:1px solid var(--bd); border-radius:8px 0 0 0;
+  #savebar .msg { color:var(--err); font-size:11px; }
+  #logbox { position:fixed; right:0; bottom:0; width:400px; max-height:40vh;
+            background:var(--srf); border:1px solid var(--bd); border-radius:4px 0 0 0;
             display:flex; flex-direction:column; }
-  #logbox summary { cursor:pointer; padding:6px 12px; color:var(--mut); font-size:12px; }
-  #loglines { overflow-y:auto; padding:0 12px 10px; margin:0; font:11px/1.45 ui-monospace,monospace;
-              white-space:pre-wrap; word-break:break-all; color:#b8c0cc; }
+  #logbox summary { cursor:pointer; padding:5px 12px; color:var(--mut); font-size:11px; }
+  #loglines { overflow-y:auto; padding:0 12px 8px; margin:0;
+              font:10px/1.4 ui-monospace,SF Mono,monospace;
+              white-space:pre-wrap; word-break:break-all; color:var(--mut); }
   details#logbox:not([open]) #loglines { display:none; }
 </style>
 </head>
@@ -443,7 +466,7 @@ PAGE = """<!doctype html>
     </div>
   </aside>
   <div id="practicebar" hidden>🛠️ <b id="pprofile">global</b> — gestur <b id="pgesture">…</b> akan menjalankan <b id="paction">…</b></div>
-  <section id="editor"></section>
+  <section id="editor"><div id="editor-inner"></div></section>
 </main>
 <div id="savebar">
   <button class="primary" id="savebtn" onclick="save()" disabled>Simpan</button>
@@ -462,8 +485,8 @@ const SLOTS = ["rotate_left","rotate_right","press","press_rotate_left","press_r
 const SLOT_NAMES = {rotate_left:"Rotasi kiri",rotate_right:"Rotasi kanan",press:"Tekan",
   press_rotate_left:"Tekan + rotasi kiri",press_rotate_right:"Tekan + rotasi kanan"};
 const TYPES = ["key","shortcut","mouse","scroll","command","sequence","noop"];
-const TYPE_COLORS = {key:"#7aa2f7", shortcut:"#7aa2f7", scroll:"#2ac3de",
-  mouse:"#bb9af7", command:"#9ece6a", sequence:"#e0af68", noop:"#3a3d46"};
+const TYPE_COLORS = {key:"#7a9ec0", shortcut:"#7a9ec0", scroll:"#6b9e8a",
+  mouse:"#9b8ab8", command:"#8a9e78", sequence:"#c49560", noop:"#3a3c40"};
 let CFG = null, SEL = "__global__", DIRTY = false;
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",
@@ -479,41 +502,80 @@ function actSum(a){
 function markDirty(){ if(!DIRTY){ DIRTY=true; $("savebtn").disabled=false; } }
 
 function renderKnob(scope){
-  const Z = [
-    {s:"rotate_left",        x:6,   y:114, w:46, h:56, g:"◀", c:"kiri"},
-    {s:"rotate_right",       x:268, y:114, w:46, h:56, g:"▶", c:"kanan"},
-    {s:"press_rotate_left",  x:74,  y:16,  w:60, h:54, g:"⟲", c:"tahan+putar", c2:"kiri"},
-    {s:"press_rotate_right", x:186, y:16,  w:60, h:54, g:"⟳", c:"tahan+putar", c2:"kanan"}
-  ];
-  let p = '<div class="knobwrap"><svg viewBox="0 0 320 240">' +
-    '<circle cx="160" cy="142" r="64" style="fill:#14151a;stroke:var(--bd)"/>';
-  for (const z of Z){
-    const a = scope[z.s] || {type:"noop"};
-    const col = TYPE_COLORS[a.type] || TYPE_COLORS.noop;
+  const G = (slot, path, label) => {
+    const a = scope[slot] || {type:"noop"};
     const on = a.type !== "noop";
-    const ks = (a.keys||[]).join(" + ");
-    const gy = z.c2 ? z.y+24 : z.y+z.h/2+4;
-    const cy = z.c2 ? z.y+39 : z.y+z.h-10;
-    const c2y = z.c2 ? z.y+51 : 0;
-    p += '<g class="zone" data-slot="'+z.s+'" onclick="focusSlot(\\''+z.s+'\\')"><title>' +
-      esc(SLOT_NAMES[z.s]+": "+actSum(a)) + '</title>' +
-      '<rect x="'+z.x+'" y="'+z.y+'" width="'+z.w+'" height="'+z.h+'" rx="12" fill="'+col+
-      '" fill-opacity="'+(on?0.25:0.06)+'" stroke="'+col+'" stroke-width="1.5"/>' +
-      '<text x="'+(z.x+z.w/2)+'" y="'+gy+'" text-anchor="middle" font-size="17" ' +
-      'font-family="ui-monospace,monospace,sans-serif" fill="'+(on?col:"#565b66")+'">'+z.g+'</text>' +
-      '<text x="'+(z.x+z.w/2)+'" y="'+cy+'" text-anchor="middle" font-size="9" ' +
-      'style="fill:var(--mut)">'+z.c+'</text>' +
-      (z.c2 ? '<text x="'+(z.x+z.w/2)+'" y="'+c2y+'" text-anchor="middle" font-size="9" ' +
-        'style="fill:var(--mut)">'+z.c2+'</text>' : '') + '</g>';
+    const col = TYPE_COLORS[a.type] || TYPE_COLORS.noop;
+    const sc = on ? col : "var(--bd)";
+    const sw = on ? "1.5" : "1";
+    return '<g class="zone" data-slot="'+slot+'" onclick="focusSlot(\\''+slot+'\\')">'+
+      '<title>'+esc(SLOT_NAMES[slot]+": "+actSum(a))+'</title>'+
+      path(sc, sw)+label(sc, on)+'</g>';
+  };
+  let p = '<div class="knobwrap"><svg viewBox="0 0 320 240">';
+  // Subtle dot grid
+  p += '<defs><pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse">'+
+    '<circle cx="10" cy="10" r=".4" fill="var(--bd)" opacity=".35"/></pattern></defs>';
+  p += '<rect width="320" height="240" fill="url(#g)"/>';
+  // Knob body — concentric rings
+  p += '<circle cx="160" cy="142" r="66" fill="none" stroke="var(--bd)" stroke-width=".8"/>';
+  p += '<circle cx="160" cy="142" r="50" fill="none" stroke="var(--bd)" stroke-width=".5" stroke-dasharray="3 4"/>';
+  p += '<circle cx="160" cy="142" r="34" fill="none" stroke="var(--bd)" stroke-width=".8" opacity=".5"/>';
+  p += '<circle cx="160" cy="142" r="10" fill="none" stroke="var(--bd)" stroke-width="1.5"/>';
+  // Crosshair
+  p += '<line x1="90" y1="142" x2="230" y2="142" stroke="var(--bd)" stroke-width=".4" stroke-dasharray="8 6"/>';
+  p += '<line x1="160" y1="72" x2="160" y2="212" stroke="var(--bd)" stroke-width=".4" stroke-dasharray="8 6"/>';
+  // Tick marks at 45° on outer ring
+  for(let a=45;a<360;a+=90){
+    const ra = a*Math.PI/180;
+    p += '<line x1="'+(160+60*Math.cos(ra)).toFixed(1)+'" y1="'+(142-60*Math.sin(ra)).toFixed(1)+
+      '" x2="'+(160+66*Math.cos(ra)).toFixed(1)+'" y2="'+(142-66*Math.sin(ra)).toFixed(1)+
+      '" stroke="var(--bd)" stroke-width=".6"/>';
   }
-  const pr = scope["press"] || {type:"noop"};
-  const pcol = TYPE_COLORS[pr.type] || TYPE_COLORS.noop;
-  const pon = pr.type !== "noop";
-  p += '<g class="zone" data-slot="press" onclick="focusSlot(\\'press\\')"><title>' +
-    esc(SLOT_NAMES["press"]+": "+actSum(pr)) + '</title>' +
-    '<circle cx="160" cy="142" r="34" fill="'+pcol+'" fill-opacity="'+(pon?0.2:0.05)+'" stroke="'+pcol+'" stroke-width="1.5"/>' +
-    '<circle cx="160" cy="142" r="10" fill="'+(pon?pcol:"#565b66")+'"/>' +
-    '<text x="160" y="188" text-anchor="middle" font-size="9" style="fill:var(--mut)">tekan</text></g>';
+  // Measurement annotation
+  p += '<text x="227" y="146" font-size="8" font-family="system-ui,sans-serif" fill="var(--mut)">ø55mm</text>';
+
+  // Zone 1: rotate_left — arc indicator left side
+  p += G("rotate_left",
+    (sc,sw)=>'<path d="M94,142 A66,66 0 0,1 110,98" fill="none" stroke="'+sc+'" stroke-width="'+sw+
+      '"/><polygon points="107,95 114,90 113,99" fill="'+sc+'"/>'+
+      '<rect x="30" y="108" width="54" height="32" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
+    (sc,on)=>'<text x="57" y="130" text-anchor="middle" font-size="10" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">rotasi kiri</text>');
+  // Zone 2: rotate_right
+  p += G("rotate_right",
+    (sc,sw)=>'<path d="M226,142 A66,66 0 0,1 210,98" fill="none" stroke="'+sc+'" stroke-width="'+sw+
+      '"/><polygon points="213,95 206,90 207,99" fill="'+sc+'"/>'+
+      '<rect x="236" y="108" width="54" height="32" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
+    (sc,on)=>'<text x="263" y="130" text-anchor="middle" font-size="10" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">rotasi kanan</text>');
+  // Zone 3: press (center)
+  p += G("press",
+    (sc,sw)=>'<circle cx="160" cy="142" r="32" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'"/>'+
+      '<circle cx="160" cy="142" r="8" fill="'+sc+'" fill-opacity="'+(sw==="1.5"?"1":".25")+'"/>',
+    (sc,on)=>'');
+  // Zone 4: press_rotate_left
+  p += G("press_rotate_left",
+    (sc,sw)=>'<path d="M106,142 A54,54 0 0,1 118,108" fill="none" stroke="'+sc+'" stroke-width="'+sw+
+      '" stroke-dasharray="2 3"/>'+
+      '<rect x="10" y="52" width="64" height="30" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
+    (sc,on)=>'<text x="42" y="66" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">tahan+putar</text>'+
+      '<text x="42" y="77" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="var(--mut)">kiri</text>');
+  // Zone 5: press_rotate_right
+  p += G("press_rotate_right",
+    (sc,sw)=>'<path d="M214,142 A54,54 0 0,0 202,108" fill="none" stroke="'+sc+'" stroke-width="'+sw+
+      '" stroke-dasharray="2 3"/>'+
+      '<rect x="246" y="52" width="64" height="30" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
+    (sc,on)=>'<text x="278" y="66" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">tahan+putar</text>'+
+      '<text x="278" y="77" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="var(--mut)">kanan</text>');
+  // "tekan" label below press zone
+  p += '<text x="160" y="188" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="var(--mut)">tekan</text>';
+  // ID mark
+  p += '<text x="75" y="224" font-size="8" font-family="ui-monospace,monospace" fill="var(--bd)" opacity=".5">ANTICATER VK-01</text>';
+  // Ruler marks at bottom
+  p += '<line x1="150" y1="216" x2="245" y2="216" stroke="var(--bd)" stroke-width=".5"/>';
+  for(let i=0;i<=10;i++){
+    const h = i%5===0?5:(i%2===0?3:2);
+    p += '<line x1="'+(150+i*9.5)+'" y1="216" x2="'+(150+i*9.5)+'" y2="'+(216+h)+'" stroke="var(--bd)" stroke-width=".4"/>';
+  }
   return p + '</svg></div>';
 }
 
@@ -601,7 +663,7 @@ function renderApps(){
 }
 
 function renderEditor(){
-  const ed = $("editor"); ed.innerHTML = "";
+  const ed = $("editor-inner"); ed.innerHTML = "";
   const scope = SEL==="__global__" ? CFG.global : (CFG.apps[SEL] || {});
   const h = document.createElement("h2");
   h.textContent = SEL==="__global__" ? "Global (semua app lain)" : "Profil: "+SEL;
