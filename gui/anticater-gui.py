@@ -27,7 +27,7 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 sys.path.insert(0, str(REPO / "daemon"))
 from anticaterd import (KEY_ALIASES, KEY_BY_NAME, check_config,  # noqa: E402
-                        default_config_path, keycode, required_keycodes)
+                        default_config_path, keycode)
 
 DAEMON = REPO / "daemon" / "anticaterd.py"
 
@@ -107,21 +107,15 @@ def empty_slots():
 
 
 def key_table():
-    """Nama tombol yang diterima validator daemon -> [keycode, dasar].
-
-    dasar=False: lolos validator, tetapi daemon hanya mendaftarkannya ke uinput
-    bila dipakai di profil global (required_keycodes() melewati profil app)."""
-    base = required_keycodes({"global": {}, "apps": {}})
+    """Nama tombol yang diterima validator daemon -> keycode."""
     names = set(KEY_ALIASES)
-    names.update(n[4:].lower() for n in KEY_BY_NAME
-                 if isinstance(n, str) and n.startswith("KEY_"))
+    names.update(n[4:].lower() for n in KEY_BY_NAME if n.startswith("KEY_"))
     table = {}
     for name in sorted(names):
         try:
-            code = keycode(name)
+            table[name] = keycode(name)
         except KeyError:
             continue
-        table[name] = [code, code in base]
     return table
 
 
@@ -622,14 +616,6 @@ PAGE = """<!doctype html>
              font-size:13px; border-radius:6px; }
   button.kbkey.on, button.kbkey.on:hover:not(:disabled) { background:var(--accent);
              border-color:var(--accent); color:var(--on-accent); font-weight:700; }
-  button.kbkey.blocked, button.kbkey.blocked:hover:not(:disabled) { background:transparent;
-             border:1px dashed #4d535d; color:#808692; }
-  button.kbkey.blocked[aria-disabled=true] { cursor:not-allowed; }
-  button.kbkey.blocked.on, button.kbkey.blocked.on:hover:not(:disabled) {
-             border-color:var(--accent); background:var(--accent-soft); color:var(--accent); }
-  #kbtip { position:fixed; z-index:20; max-width:300px; padding:var(--s2) var(--s3);
-           background:var(--surface-3); border:1px solid var(--border-control);
-           border-radius:var(--radius); font-size:13px; pointer-events:none; }
   @container (min-width:640px) { .kbfields { grid-template-columns:minmax(0,3fr) minmax(0,2fr); } }
   @container (min-width:880px) {
     .kb { grid-template-columns:15fr 3.75fr 4fr; grid-template-areas:"main nav num"; }
@@ -702,7 +688,7 @@ PAGE = """<!doctype html>
   </div>
   <button id="addbtn" onclick="openAdd()" aria-label="Tambah app atau terapkan template" title="Tambah app / template" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
 </nav>
-<main onscroll="hideTip()">
+<main>
   <div class="workspace">
     <section id="knobcol" class="panel" aria-label="Knob"></section>
     <aside id="editor" class="panel" aria-label="Editor aksi"><div id="editor-inner"></div></aside>
@@ -758,7 +744,6 @@ PAGE = """<!doctype html>
     </div>
   </div>
 </dialog>
-<div id="kbtip" role="tooltip" hidden></div>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
@@ -768,7 +753,7 @@ const SLOT_NAMES = {rotate_left:"Putar kiri",rotate_right:"Putar kanan",press:"T
 const SLOT_ICONS = {rotate_left:"ccw",rotate_right:"cw",press:"press",
   press_rotate_left:"ccw",press_rotate_right:"cw"};
 const TEMPLATES = /*TEMPLATES*/null;   // diisi server dari TEMPLATES (Python)
-const KEYTABLE = /*KEYTABLE*/null;     // nama -> [keycode, dasar], diturunkan dari daemon
+const KEYTABLE = /*KEYTABLE*/null;     // nama -> keycode, diturunkan dari daemon
 const TYPE_TABS = [["shortcut","Shortcut"],["key","Tombol / Multimedia"],["mouse","Mouse"],
   ["scroll","Scroll"],["command","Perintah"],["sequence","Urutan"],["noop","Tanpa aksi"]];
 let CFG = null, SEL = "__global__", DIRTY = false;
@@ -904,7 +889,6 @@ function updateKnob(){
 
 let selSlot = "rotate_left";
 function markSel(slot){
-  if(slot !== selSlot) hideTip();
   selSlot = slot;
   if(rec && rec.slot !== slot) recStop();   // perekam tak boleh aktif di panel tersembunyi
   document.querySelectorAll(".zone").forEach(z => z.classList.toggle("sel", z.dataset.slot === slot));
@@ -960,10 +944,10 @@ const KB_MAIN = [
   [["capslock","Caps",1.75], ...keys1("a s d f g h j k l"), ["semicolon",";"], ["quote","'"],
    ["return","Enter",2.25]],
   [["shift","Shift",2.25], ...keys1("z x c v b n m"), ["comma",","], ["period","."], ["slash","/"],
-   ["shift","Shift",2.75,"R"]],
+   ["rightshift","Shift",2.75]],
   [["control","Ctrl",1.25], ["super","Win",1.25], ["alt","Alt",1.25], ["space","Space",6.25],
-   ["alt","Alt",1.25,"R"], ["super","Win",1.25,"R"], ["compose","Menu",1.25],
-   ["control","Ctrl",1.25,"R"]]];
+   ["rightalt","Alt",1.25], ["rightmeta","Win",1.25], ["compose","Menu",1.25],
+   ["rightctrl","Ctrl",1.25]]];
 const KB_NAV = [
   [["sysrq","PrtSc"], ["scrolllock","ScrLk"], ["pause","Pause"]],
   [["insert","Ins"], ["home","Home"], ["pageup","PgUp"]],
@@ -987,85 +971,56 @@ const OS_LABELS = {
 let KBOS = "win";
 try{ if(localStorage.getItem("anticater.kbos") === "mac") KBOS = "mac"; }catch(e){}
 
-const MODS = ["control","shift","alt","super"];
-const RIGHT = {control:"rightctrl", shift:"rightshift", alt:"rightalt", super:"rightmeta"};
+// modifier: pasangan kiri (nama umum) dan kanan, berurutan seperti saat disimpan
+const MOD_NAMES = ["control","rightctrl","shift","rightshift","alt","rightalt","super","rightmeta"];
+const RIGHT_OF = {rightctrl:"control", rightshift:"shift", rightalt:"alt", rightmeta:"super"};
 // sama dengan keycode() daemon: trim + huruf kecil
 function keyInfo(n){
   const k = String(n).trim().toLowerCase();
   return Object.hasOwn(KEYTABLE, k) ? KEYTABLE[k] : null;
 }
 function keyList(k){ return Array.isArray(k) ? k.map(String) : String(k||"").split(/\\s+/).filter(Boolean); }
-function famOf(n){
-  const i = keyInfo(n); if(!i) return null;
-  return MODS.find(f => keyInfo(f)[0] === i[0] || keyInfo(RIGHT[f])[0] === i[0]) || null;
+// urutan modifier menurut keycode (alias ikut dikenali); -1 = bukan modifier
+function modRank(n){
+  const c = keyInfo(n);
+  return c === null ? -1 : MOD_NAMES.findIndex(m => keyInfo(m) === c);
 }
-const ON_BOARD = new Set([...KB_MAIN.flat(), ...KB_NAV.flat(), ...KB_NUM, ...KB_MEDIA,
-  ...Object.values(RIGHT).map(n => [n])].map(k => k[0] && keyInfo(k[0])).filter(Boolean).map(i => i[0]));
-// keycode yang dipakai profil global: ikut didaftarkan daemon ke uinput
-function globalCodes(){
-  const out = new Set();
-  Object.values(CFG.global||{}).forEach(a => {
-    (a.type === "sequence" ? a.steps||[] : [a]).forEach(x => {
-      if(x && (x.type === "key" || x.type === "shortcut"))
-        keyList(x.keys).forEach(n => { const i = keyInfo(n); if(i) out.add(i[0]); });
-    });
-  });
-  return out;
-}
+const ON_BOARD = new Set([...KB_MAIN.flat(), ...KB_NAV.flat(), ...KB_NUM, ...KB_MEDIA]
+  .map(k => k[0] && keyInfo(k[0])).filter(c => c !== null));
 // daftar keys baru setelah tombol 'name' diklik; lit = tombol itu sedang menyala
 function pickKey(type, keys, name, lit){
   if(type === "key") return lit && keys.length === 1 ? [] : [name];
-  const fam = MODS.includes(name) ? name : null;
-  if(fam){
-    const rest = keys.filter(k => famOf(k) !== fam);
-    if(lit) return rest;
-    let i = rest.findIndex(k => { const f = famOf(k); return !f || MODS.indexOf(f) > MODS.indexOf(fam); });
-    if(i < 0) i = rest.length;
-    return [...rest.slice(0,i), name, ...rest.slice(i)];
+  if(lit) return keys.filter(k => keyInfo(k) !== keyInfo(name));
+  const rank = modRank(name);
+  if(rank >= 0){
+    let i = keys.findIndex(k => { const r = modRank(k); return r < 0 || r > rank; });
+    if(i < 0) i = keys.length;
+    return [...keys.slice(0,i), name, ...keys.slice(i)];
   }
-  if(lit) return keys.filter(k => !keyInfo(k) || keyInfo(k)[0] !== keyInfo(name)[0]);
-  return [...keys.filter(k => famOf(k)), name];    // ganti tombol utama, modifier tetap
+  return [...keys.filter(k => modRank(k) >= 0), name];   // ganti tombol utama, modifier tetap
 }
 // catatan untuk isi input "Kunci"
 function keyProblems(keys){
-  const unknown = [], unsent = [], off = [], inGlobal = globalCodes();
-  keys.forEach(n => {
-    const i = keyInfo(n);
-    if(!i){ unknown.push(n); return; }
-    if(SEL !== "__global__" && !i[1] && !inGlobal.has(i[0])) unsent.push(n);
-    if(!ON_BOARD.has(i[0])) off.push(n);
-  });
+  const unknown = keys.filter(n => keyInfo(n) === null);
+  const off = keys.filter(n => keyInfo(n) !== null && !ON_BOARD.has(keyInfo(n)));
   const out = [];
   if(unknown.length) out.push("Tidak diterima daemon: " + unknown.join(", ") + ". Belum bisa disimpan.");
-  if(unsent.length) out.push("Tidak akan terkirim di profil app: " + unsent.join(", ") +
-    " (keterbatasan daemon: hanya terdaftar bila dipakai di profil global).");
   if(off.length) out.push("Tidak ada di keyboard visual: " + off.join(", ") + " (disimpan apa adanya).");
   return {text: out.join(" "), invalid: unknown.length > 0};
 }
 
-function showTip(btn){
-  const why = btn.dataset.why, t = $("kbtip");
-  if(!why) return hideTip();
-  t.textContent = why; t.hidden = false;
-  const r = btn.getBoundingClientRect();
-  t.style.left = Math.max(8, Math.min(innerWidth - t.offsetWidth - 8,
-    r.left + r.width/2 - t.offsetWidth/2)) + "px";
-  const top = r.top - t.offsetHeight - 6;
-  t.style.top = (top < 8 ? r.bottom + 6 : top) + "px";
-}
-function hideTip(){ $("kbtip").hidden = true; }
 function setKbOs(os){
   KBOS = os;
   try{ localStorage.setItem("anticater.kbos", os); }catch(e){}
   document.querySelectorAll(".kbkey[data-mod-label]").forEach(b =>
-    b.textContent = OS_LABELS[os][b.dataset.key]);
+    b.textContent = OS_LABELS[os][b.dataset.modLabel]);
   document.querySelectorAll(".kbos button").forEach(b => {
     b.classList.toggle("on", b.dataset.os === os); b.setAttribute("aria-pressed", b.dataset.os === os); });
 }
 
 // onPick(daftarBaru) dipanggil saat tombol diklik; refresh() menyorot sesuai scope[slot].keys
 function keyPicker(slot, scope, onPick){
-  const type = scope[slot].type, isGlobal = SEL === "__global__";
+  const type = scope[slot].type;
   const el = document.createElement("div"); el.className = "picker";
   el.innerHTML = '<div class="kbhead"><label>' + (type === "shortcut" ?
       "Klik modifier untuk menyalakan/mematikan, lalu satu tombol utama" : "Klik satu tombol") +
@@ -1074,32 +1029,29 @@ function keyPicker(slot, scope, onPick){
     '<button type="button" data-os="mac">Mac</button></span></div>' +
     '<div class="kbmedia" role="group" aria-label="Multimedia"></div>' +
     '<div class="kb" role="group" aria-label="Keyboard virtual"><div class="kbblock main"></div>' +
-    '<div class="kbblock nav"></div><div class="kbblock num"></div></div>' +
-    '<p class="hint kblegend">Tombol abu-abu bergaris putus-putus: keterbatasan daemon, bukan tombol ' +
-    'yang hilang. Sorot untuk keterangan.</p>';
+    '<div class="kbblock nav"></div><div class="kbblock num"></div></div>';
   el.querySelectorAll(".kbos button").forEach(b => b.onclick = () => setKbOs(b.dataset.os));
   const buttons = [];
-  const make = (parent, name, label, side) => {
+  const make = (parent, name, label) => {
     const b = document.createElement("button"); b.type = "button"; b.className = "kbkey";
-    b.dataset.key = name; if(side) b.dataset.side = side;
-    if(Object.hasOwn(OS_LABELS.win, name)){ b.dataset.modLabel = "1"; label = OS_LABELS[KBOS][name]; }
+    b.dataset.key = name;
+    const base = RIGHT_OF[name] || name;
+    if(Object.hasOwn(OS_LABELS.win, base)){ b.dataset.modLabel = base; label = OS_LABELS[KBOS][base]; }
+    if(modRank(name) >= 0) b.title = name + (RIGHT_OF[name] ? " (kanan)" : " (kiri)");
     b.textContent = label;
     b.onclick = () => {
-      if(b.getAttribute("aria-disabled") === "true"){ showTip(b); return; }
-      recStop(); hideTip();
+      recStop();
       onPick(pickKey(type, keyList(scope[slot].keys), name, b.classList.contains("on")));
     };
-    b.onpointerenter = b.onfocus = () => showTip(b);
-    b.onpointerleave = b.onblur = hideTip;
     parent.appendChild(b); buttons.push(b);
     return b;
   };
   [["main", KB_MAIN], ["nav", KB_NAV]].forEach(([cls, rows]) => {
     rows.forEach((row, r) => {
       let col = 1;
-      row.forEach(([name, label, w = 1, side]) => {
+      row.forEach(([name, label, w = 1]) => {
         if(name){
-          const b = make(el.querySelector(".kbblock."+cls), name, label, side);
+          const b = make(el.querySelector(".kbblock."+cls), name, label);
           b.style.gridColumn = col + " / span " + w*4;
           b.style.gridRow = r === 0 ? 1 : r + 2;
         }
@@ -1116,29 +1068,12 @@ function keyPicker(slot, scope, onPick){
   KB_MEDIA.forEach(([name, label]) => make(media, name, label));
 
   const refresh = () => {
-    const codes = new Set(keyList(scope[slot].keys).map(keyInfo).filter(Boolean).map(i => i[0]));
-    const inGlobal = globalCodes();
+    const codes = new Set(keyList(scope[slot].keys).map(keyInfo).filter(c => c !== null));
     buttons.forEach(b => {
-      const name = b.dataset.key, i = keyInfo(name);
-      const lit = !!i && (codes.has(i[0]) ||
-        (b.dataset.side === "R" && codes.has(keyInfo(RIGHT[name])[0])));
-      let why = "";
-      if(!i) why = "Keterbatasan daemon: validator menolak “" + name + "” di sistem ini.";
-      else if(!isGlobal && !i[1]){
-        why = "Keterbatasan daemon: tombol ini hanya terkirim bila dipakai di profil global.";
-        if(lit) why = (inGlobal.has(i[0]) ? "Terkirim karena juga dipakai di profil global. " :
-          why + " ") + "Klik untuk melepas.";
-      }
+      const lit = codes.has(keyInfo(b.dataset.key));
       b.classList.toggle("on", lit); b.setAttribute("aria-pressed", lit);
-      b.classList.toggle("blocked", !!why);
-      b.setAttribute("aria-disabled", !!why && !lit);
-      b.dataset.why = why;
-      if(why) b.setAttribute("aria-label", b.textContent + ". " + why);
-      else b.removeAttribute("aria-label");
     });
-    media.hidden = !(type === "key" || KB_MEDIA.some(([n]) => keyInfo(n) && codes.has(keyInfo(n)[0])));
-    el.querySelector(".kblegend").hidden = !buttons.some(b =>
-      b.classList.contains("blocked") && !b.closest("[hidden]"));
+    media.hidden = !(type === "key" || KB_MEDIA.some(([n]) => codes.has(keyInfo(n))));
     el.querySelectorAll(".kbos button").forEach(b => {
       b.classList.toggle("on", b.dataset.os === KBOS); b.setAttribute("aria-pressed", b.dataset.os === KBOS); });
   };
@@ -1146,32 +1081,53 @@ function keyPicker(slot, scope, onPick){
 }
 
 /* ---------- perekam tombol ---------- */
-const RECKEY = { " ":"space", Tab:"tab", Enter:"return", Backspace:"backspace", Delete:"delete",
+// event.code (posisi fisik) -> nama tombol daemon. Daemon mengirim keycode fisik,
+// jadi tata letak keyboard (Dvorak dll.) tetap diterapkan oleh compositor.
+const CODEKEY = {
+  Backquote:"backquote", Minus:"minus", Equal:"equal", BracketLeft:"bracketleft",
+  BracketRight:"bracketright", Backslash:"backslash", IntlBackslash:"102nd", Semicolon:"semicolon",
+  Quote:"quote", Comma:"comma", Period:"period", Slash:"slash",
+  Escape:"esc", Space:"space", Tab:"tab", Enter:"return", Backspace:"backspace", Delete:"delete",
+  Insert:"insert", Home:"home", End:"end", PageUp:"pageup", PageDown:"pagedown",
   ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
-  Home:"home", End:"end", PageUp:"pageup", PageDown:"pagedown", Insert:"insert",
+  CapsLock:"capslock", ContextMenu:"compose", PrintScreen:"sysrq", ScrollLock:"scrolllock", Pause:"pause",
+  NumLock:"numlock", NumpadDivide:"kpslash", NumpadMultiply:"kpasterisk", NumpadSubtract:"kpminus",
+  NumpadAdd:"kpplus", NumpadEnter:"kpenter", NumpadDecimal:"kpdot", NumpadEqual:"kpequal",
+  NumpadComma:"kpcomma",
   AudioVolumeUp:"volume_up", AudioVolumeDown:"volume_down", AudioVolumeMute:"mute",
+  VolumeUp:"volume_up", VolumeDown:"volume_down", VolumeMute:"mute",
   MediaPlayPause:"play_pause", MediaTrackNext:"next_track", MediaTrackPrevious:"previous_track",
-  MediaStop:"stop", ",":"comma", ".":"period", "/":"slash", ";":"semicolon", "'":"quote",
-  "`":"backquote", "-":"minus", "=":"equal", "[":"bracketleft", "]":"bracketright" };
+  MediaStop:"stop" };
+for(const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZ") CODEKEY["Key"+c] = c.toLowerCase();
+for(let i=0; i<10; i++){ CODEKEY["Digit"+i] = String(i); CODEKEY["Numpad"+i] = "kp"+i; }
+for(let i=1; i<=24; i++) CODEKEY["F"+i] = "f"+i;
+const MODCODE = { ControlLeft:"control", ControlRight:"rightctrl", ShiftLeft:"shift",
+  ShiftRight:"rightshift", AltLeft:"alt", AltRight:"rightalt", MetaLeft:"super",
+  MetaRight:"rightmeta", OSLeft:"super", OSRight:"rightmeta" };
+// tombol lain yang dipetakan ulang menjadi modifier (mis. CapsLock sebagai Ctrl)
+const MODKEY = { Control:"control", Shift:"shift", Alt:"alt", Meta:"super", Super:"super", OS:"super",
+  AltGraph:"rightalt" };
+const MODFLAG = [["ctrlKey","control","rightctrl"], ["shiftKey","shift","rightshift"],
+  ["altKey","alt","rightalt"], ["metaKey","super","rightmeta"]];
 const REC_IDLE = () => ico("keyboard") + "Rekam";
 function recStop(){
   if(rec){ rec.btn.innerHTML = REC_IDLE(); rec.btn.classList.remove("armed"); rec = null; }
 }
-document.addEventListener("keydown", e => {
-  if(!rec) return;
-  e.preventDefault(); e.stopPropagation();
-  if(e.repeat) return;
-  if(e.key === "Escape"){ recStop(); return; }
-  let name = RECKEY[e.key];
-  if(!name && e.key.length===1 && /^[a-z0-9]$/i.test(e.key)) name = e.key.toLowerCase();
-  if(!name && /^F([1-9]|1[0-2])$/i.test(e.key)) name = e.key.toLowerCase();
-  if(!name) return;
-  const ks = [];
-  if(e.ctrlKey) ks.push("control");
-  if(e.shiftKey) ks.push("shift");
-  if(e.altKey) ks.push("alt");
-  if(e.metaKey) ks.push("super");
-  ks.push(name);
+// modifier yang menyertai tombol utama: sisi fisiknya bila terlihat ditekan,
+// bila tidak (mis. sudah ditahan sebelum merekam) nama umum dari flag event
+function recMods(e){
+  const out = [];
+  MODFLAG.forEach(([flag, left, right]) => {
+    let names = [...rec.held.values()].filter(n => n === left || n === right);
+    // AltGr tidak menyalakan altKey; yang lain dianggap sudah dilepas bila flag mati
+    if(!e[flag]) names = names.filter(n => n === "rightalt");
+    else if(!names.length) names = [left];
+    out.push(...MOD_NAMES.filter(n => names.includes(n)));
+  });
+  return out;
+}
+function recCommit(ks){
+  if(ks.some(n => keyInfo(n) === null)) return;   // hanya yang lolos validator daemon
   const {slot, inp, upd, scope} = rec;
   scope[slot] = scope[slot] || {};
   scope[slot].keys = ks;
@@ -1179,6 +1135,37 @@ document.addEventListener("keydown", e => {
   upd(); markDirty();
   recStop();
   inp.focus();
+}
+document.addEventListener("keydown", e => {
+  if(!rec) return;
+  e.preventDefault(); e.stopPropagation();
+  if(e.repeat) return;
+  if(e.key === "Escape"){ recStop(); return; }
+  const mod = MODCODE[e.code] || MODKEY[e.key];
+  const arrowsOnly = rec.type === "scroll";       // validator scroll hanya menerima arah
+  if(mod){
+    rec.held.set(e.code || e.key, mod);
+    rec.lone = rec.held.size === 1 ? mod : null;
+    return;
+  }
+  rec.lone = null;
+  const name = Object.hasOwn(CODEKEY, e.code) ? CODEKEY[e.code] : null;
+  if(!name) return;
+  if(arrowsOnly){ if(["up","down","left","right"].includes(name)) recCommit([name]); return; }
+  recCommit([...recMods(e), name]);
+});
+document.addEventListener("keyup", e => {
+  if(!rec) return;
+  e.preventDefault(); e.stopPropagation();
+  const mod = MODCODE[e.code] || MODKEY[e.key];
+  if(mod){
+    rec.held.delete(e.code || e.key);
+    // modifier dilepas tanpa tombol lain: rekam modifier itu sendiri
+    if(rec.lone === mod && rec.type !== "scroll") recCommit([mod]);
+    return;
+  }
+  // PrintScreen sering hanya mengirim keyup
+  if(e.code === "PrintScreen" && rec.type !== "scroll") recCommit([...recMods(e), "sysrq"]);
 });
 
 /* ---------- profil ---------- */
@@ -1230,7 +1217,7 @@ function field(text, control, id){
 }
 
 function renderEditor(){
-  recStop(); hideTip();
+  recStop();
   const ed = $("editor-inner"); ed.innerHTML = "";
   const scope = curScope();
   $("knobcol").innerHTML = '<div class="head"><h2></h2><p></p></div>' + renderKnob();
@@ -1321,7 +1308,8 @@ function renderEditor(){
         rb.innerHTML = REC_IDLE();
         rb.onclick = () => {
           if(rec && rec.btn !== rb) recStop();
-          rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: sync};
+          rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: sync,
+                 type: act.type, held: new Map(), lone: null};
           rb.classList.add("armed"); rb.innerHTML = ico("keyboard") + "Rekam… Esc batal";
           inp.focus();
         };

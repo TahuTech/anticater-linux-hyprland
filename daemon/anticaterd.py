@@ -32,8 +32,11 @@ from pathlib import Path
 
 from evdev import InputDevice, UInput, ecodes, list_devices
 
-# evdev >=1.x: ecodes.KEY = {code: "KEY_NAMA"} — balik jadi nama -> code
-KEY_BY_NAME = {name: code for code, name in ecodes.KEY.items()}
+# evdev >=1.x: ecodes.KEY = {code: "KEY_NAMA"} — balik jadi nama -> code.
+# Kode dengan beberapa nama (mis. 113: KEY_MIN_INTERESTING & KEY_MUTE) berupa
+# tuple/list, tergantung versi python-evdev, jadi tiap namanya dipecah.
+KEY_BY_NAME = {name: code for code, names in ecodes.KEY.items()
+               for name in ((names,) if isinstance(names, str) else names)}
 
 VID_ANTICATER = 0x514C  # LiQi / ANTICATER
 NAME_KEYBOARD = "USB Composite Device Keyboard"
@@ -98,7 +101,12 @@ stop = threading.Event()
 def keycode(name):
     """Nama kunci manusiawi -> keycode evdev. Raise KeyError bila tak dikenal."""
     base = KEY_ALIASES.get(name.strip().lower(), name.strip().lower())
-    return KEY_BY_NAME["KEY_" + base.upper()]
+    code = KEY_BY_NAME["KEY_" + base.upper()]
+    # KEY_RESERVED/KEY_MAX/KEY_CNT bukan tombol; KEY_CNT di luar batas kernel
+    # dan membuat pembuatan perangkat uinput gagal seluruhnya
+    if not 0 < code < ecodes.KEY_MAX:
+        raise KeyError(name)
+    return code
 
 
 def required_keycodes(config):
@@ -111,17 +119,28 @@ def required_keycodes(config):
             keys.add(KEY_BY_NAME["KEY_" + n])
     for i in range(1, 13):
         keys.add(KEY_BY_NAME["KEY_F%d" % i])
-    for k in config:
-        for slot in config[k].values():
-            acts = [slot] if slot.get("type") != "sequence" else \
-                [st for st in slot.get("steps", []) if isinstance(st, dict)]
+    # config = {"global": {slot: aksi}, "apps": {app: {slot: aksi}}}
+    # Data rusak dilewati: kegagalan di sini mematikan daemon / thread fokus.
+    for profile in (config.get("global", {}), *config.get("apps", {}).values()):
+        for slot in profile.values():
+            if not isinstance(slot, dict):
+                continue
+            acts = [slot] if slot.get("type") != "sequence" else slot.get("steps")
+            if not isinstance(acts, list):
+                continue
             for a in acts:
-                if a.get("type") in ("key", "shortcut"):
-                    for n in a.get("keys", []):
-                        try:
-                            keys.add(keycode(n))
-                        except KeyError:
-                            pass  # divalidasi terpisah di --check-config
+                if not isinstance(a, dict) or a.get("type") not in ("key", "shortcut"):
+                    continue
+                names = a.get("keys")
+                if not isinstance(names, list):
+                    continue
+                for n in names:
+                    if not isinstance(n, str):
+                        continue
+                    try:
+                        keys.add(keycode(n))
+                    except KeyError:
+                        pass  # divalidasi terpisah di --check-config
     return keys
 
 

@@ -72,11 +72,10 @@
         ]
       },
       "press_rotate_right": {
-        "type": "shortcut",
+        "type": "key",
         "description": "Maju (riwayat)",
         "keys": [
-          "control",
-          "right"
+          "a"
         ]
       }
     },
@@ -108,19 +107,17 @@
       },
       "press_rotate_left": {
         "type": "shortcut",
-        "description": "Format dokumen",
+        "description": "Masalah sebelumnya",
         "keys": [
-          "control",
-          "shift",
-          "f"
+          "f8"
         ]
       },
       "press_rotate_right": {
         "type": "shortcut",
-        "description": "Cari di file",
+        "description": "Masalah berikutnya",
         "keys": [
-          "control",
-          "f"
+          "shift",
+          "f8"
         ]
       }
     },
@@ -137,6 +134,56 @@
         "description": "Gulir ke bawah (PageDown)",
         "keys": [
           "pagedown"
+        ]
+      },
+      "press": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      },
+      "press_rotate_left": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      },
+      "press_rotate_right": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      }
+    },
+    "kitty": {
+      "rotate_left": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      },
+      "rotate_right": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      },
+      "press": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      },
+      "press_rotate_left": {
+        "type": "noop",
+        "keys": [],
+        "description": ""
+      },
+      "press_rotate_right": {
+        "type": "key",
+        "keys": [
+          "1"
+        ],
+        "description": "",
+        "steps": [
+          {
+            "type": "key",
+            "keys": []
+          }
         ]
       }
     }
