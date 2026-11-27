@@ -372,13 +372,15 @@ PAGE = """<!doctype html>
   .hint { color:var(--mut); font-size:11px; margin-top:4px; }
   .knobwrap { display:flex; justify-content:center; margin-bottom:16px; }
   .knobwrap svg { width:100%; max-width:340px; height:auto; }
-  .zone { cursor:pointer; }
+  .zone { cursor:pointer; transition:filter .15s; }
   .zone:hover rect, .zone:hover circle { stroke-width:2.5; }
+  .zone.sel rect, .zone.sel circle { stroke:var(--acc); stroke-width:2.5; }
+  .zone.sel { filter:drop-shadow(0 0 6px var(--acc)); }
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
   .chip { background:#14151a; border:1px solid #3a3f4a; border-bottom-width:2px; border-radius:5px;
           padding:2px 8px; font-family:ui-monospace,monospace; font-size:12px; color:#cdd3dc; }
   .slot { transition:box-shadow .2s; }
-  .slot.hl { box-shadow:0 0 0 2px var(--acc); }
+  .slot.sel { box-shadow:0 0 0 2px var(--acc); }
   #savebar { position:sticky; bottom:0; display:flex; gap:10px; align-items:center;
              padding:10px 20px; background:linear-gradient(transparent, var(--bg) 35%);
              border-top:1px solid var(--bd); }
@@ -468,7 +470,7 @@ function renderKnob(scope){
     const gy = z.c2 ? z.y+24 : z.y+z.h/2+4;
     const cy = z.c2 ? z.y+39 : z.y+z.h-10;
     const c2y = z.c2 ? z.y+51 : 0;
-    p += '<g class="zone" onclick="focusSlot(\\''+z.s+'\\')"><title>' +
+    p += '<g class="zone" data-slot="'+z.s+'" onclick="focusSlot(\\''+z.s+'\\')"><title>' +
       esc(SLOT_NAMES[z.s]+": "+(on ? a.type+(ks ? " "+ks : "") : "noop")) + '</title>' +
       '<rect x="'+z.x+'" y="'+z.y+'" width="'+z.w+'" height="'+z.h+'" rx="12" fill="'+col+
       '" fill-opacity="'+(on?0.25:0.06)+'" stroke="'+col+'" stroke-width="1.5"/>' +
@@ -482,7 +484,7 @@ function renderKnob(scope){
   const pr = scope["press"] || {type:"noop"};
   const pcol = TYPE_COLORS[pr.type] || TYPE_COLORS.noop;
   const pon = pr.type !== "noop";
-  p += '<g class="zone" onclick="focusSlot(\\'press\\')"><title>' +
+  p += '<g class="zone" data-slot="press" onclick="focusSlot(\\'press\\')"><title>' +
     esc(SLOT_NAMES["press"]+": "+(pon ? pr.type+" "+((pr.keys||[]).join(" + ")) : "noop")) + '</title>' +
     '<circle cx="160" cy="142" r="34" fill="'+pcol+'" fill-opacity="'+(pon?0.2:0.05)+'" stroke="'+pcol+'" stroke-width="1.5"/>' +
     '<circle cx="160" cy="142" r="10" fill="'+(pon?pcol:"#565b66")+'"/>' +
@@ -490,12 +492,18 @@ function renderKnob(scope){
   return p + '</svg></div>';
 }
 
+let selSlot = "rotate_left";
+function markSel(slot){
+  selSlot = slot;
+  document.querySelectorAll(".zone").forEach(z => z.classList.toggle("sel", z.dataset.slot === slot));
+  document.querySelectorAll(".slot").forEach(c => c.classList.toggle("sel", c.id === "slot-"+slot));
+}
 function focusSlot(slot){
   const el = document.getElementById("slot-"+slot);
   if(!el) return;
+  markSel(slot);
   el.scrollIntoView({behavior:"smooth", block:"center"});
-  el.classList.add("hl");
-  setTimeout(()=>el.classList.remove("hl"), 1300);
+  const i = el.querySelector("input.keys"); if(i) i.focus();
 }
 
 function select(app, btn){
@@ -569,8 +577,10 @@ function renderEditor(){
     d.placeholder = "keterangan opsional"; d.value = act.description || "";
     d.oninput = () => { scope[slot] = scope[slot] || {}; scope[slot].description = d.value; markDirty(); };
     r3.append(lb3, d); card.appendChild(r3);
+    card.addEventListener("focusin", () => markSel(slot));
     ed.appendChild(card);
   }
+  if(selSlot) markSel(selSlot);
 }
 
 function addApp(){
