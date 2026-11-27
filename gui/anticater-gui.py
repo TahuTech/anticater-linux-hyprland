@@ -370,6 +370,15 @@ PAGE = """<!doctype html>
           border-radius:6px; padding:5px 8px; font-family:ui-monospace,monospace; font-size:12px; }
   input[type=text].keys { min-width:280px; flex:1; }
   .hint { color:var(--mut); font-size:11px; margin-top:4px; }
+  .knobwrap { display:flex; justify-content:center; margin-bottom:16px; }
+  .knobwrap svg { width:100%; max-width:340px; height:auto; }
+  .zone { cursor:pointer; }
+  .zone:hover rect, .zone:hover circle { stroke-width:2.5; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+  .chip { background:#14151a; border:1px solid #3a3f4a; border-bottom-width:2px; border-radius:5px;
+          padding:2px 8px; font-family:ui-monospace,monospace; font-size:12px; color:#cdd3dc; }
+  .slot { transition:box-shadow .2s; }
+  .slot.hl { box-shadow:0 0 0 2px var(--acc); }
   #savebar { position:sticky; bottom:0; display:flex; gap:10px; align-items:center;
              padding:10px 20px; background:linear-gradient(transparent, var(--bg) 35%);
              border-top:1px solid var(--bd); }
@@ -433,12 +442,56 @@ const SLOTS = ["rotate_left","rotate_right","press","press_rotate_left","press_r
 const SLOT_NAMES = {rotate_left:"Rotasi kiri",rotate_right:"Rotasi kanan",press:"Tekan",
   press_rotate_left:"Tekan + rotasi kiri",press_rotate_right:"Tekan + rotasi kanan"};
 const TYPES = ["key","shortcut","mouse","scroll","command","noop"];
+const TYPE_COLORS = {key:"#7aa2f7", shortcut:"#7aa2f7", scroll:"#2ac3de",
+  mouse:"#bb9af7", command:"#9ece6a", noop:"#3a3d46"};
 let CFG = null, SEL = "__global__", DIRTY = false;
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",
   '"':"&quot;","'":"&#39;"}[c])); }
 
 function markDirty(){ if(!DIRTY){ DIRTY=true; $("savebtn").disabled=false; } }
+
+function renderKnob(scope){
+  const Z = [
+    {s:"rotate_left",        x:6,   y:114, w:46, h:56, g:"◀", c:"kiri"},
+    {s:"rotate_right",       x:268, y:114, w:46, h:56, g:"▶", c:"kanan"},
+    {s:"press_rotate_left",  x:86,  y:26,  w:52, h:44, g:"↺", c:"t+kiri"},
+    {s:"press_rotate_right", x:182, y:26,  w:52, h:44, g:"↻", c:"t+kanan"}
+  ];
+  let p = '<div class="knobwrap"><svg viewBox="0 0 320 240">' +
+    '<circle cx="160" cy="142" r="64" style="fill:#14151a;stroke:var(--bd)"/>';
+  for (const z of Z){
+    const a = scope[z.s] || {type:"noop"};
+    const col = TYPE_COLORS[a.type] || TYPE_COLORS.noop;
+    const on = a.type !== "noop";
+    const ks = (a.keys||[]).join(" + ");
+    p += '<g class="zone" onclick="focusSlot(\\''+z.s+'\\')"><title>' +
+      esc(SLOT_NAMES[z.s]+": "+(on ? a.type+(ks ? " "+ks : "") : "noop")) + '</title>' +
+      '<rect x="'+z.x+'" y="'+z.y+'" width="'+z.w+'" height="'+z.h+'" rx="12" fill="'+col+
+      '" fill-opacity="'+(on?0.25:0.06)+'" stroke="'+col+'" stroke-width="1.5"/>' +
+      '<text x="'+(z.x+z.w/2)+'" y="'+(z.y+z.h/2+4)+'" text-anchor="middle" font-size="18" ' +
+      'font-family="ui-monospace,monospace,sans-serif" fill="'+(on?col:"#565b66")+'">'+z.g+'</text>' +
+      '<text x="'+(z.x+z.w/2)+'" y="'+(z.y+z.h-10)+'" text-anchor="middle" font-size="9" ' +
+      'style="fill:var(--mut)">'+z.c+'</text></g>';
+  }
+  const pr = scope["press"] || {type:"noop"};
+  const pcol = TYPE_COLORS[pr.type] || TYPE_COLORS.noop;
+  const pon = pr.type !== "noop";
+  p += '<g class="zone" onclick="focusSlot(\\'press\\')"><title>' +
+    esc(SLOT_NAMES["press"]+": "+(pon ? pr.type+" "+((pr.keys||[]).join(" + ")) : "noop")) + '</title>' +
+    '<circle cx="160" cy="142" r="34" fill="'+pcol+'" fill-opacity="'+(pon?0.2:0.05)+'" stroke="'+pcol+'" stroke-width="1.5"/>' +
+    '<circle cx="160" cy="142" r="10" fill="'+(pon?pcol:"#565b66")+'"/>' +
+    '<text x="160" y="188" text-anchor="middle" font-size="9" style="fill:var(--mut)">tekan</text></g>';
+  return p + '</svg></div>';
+}
+
+function focusSlot(slot){
+  const el = document.getElementById("slot-"+slot);
+  if(!el) return;
+  el.scrollIntoView({behavior:"smooth", block:"center"});
+  el.classList.add("hl");
+  setTimeout(()=>el.classList.remove("hl"), 1300);
+}
 
 function select(app, btn){
   SEL = app;
@@ -466,10 +519,10 @@ function renderEditor(){
   const scope = SEL==="__global__" ? CFG.global : (CFG.apps[SEL] || {});
   const h = document.createElement("h2");
   h.textContent = SEL==="__global__" ? "Global (semua app lain)" : "Profil: "+SEL;
-  ed.appendChild(h);
+  ed.appendChild(h); ed.insertAdjacentHTML("beforeend", renderKnob(scope));
   for (const slot of SLOTS){
     const act = scope[slot] || {type:"noop", keys:[], description:""};
-    const card = document.createElement("div"); card.className = "slot";
+    const card = document.createElement("div"); card.className = "slot"; card.id = "slot-"+slot;
     const h3 = document.createElement("h3"); h3.textContent = SLOT_NAMES[slot]; card.appendChild(h3);
 
     const r1 = document.createElement("div"); r1.className = "row";
@@ -491,8 +544,19 @@ function renderEditor(){
       "control shift tab"; inp.value = (act.keys||[]).join(" ");
     inp.oninput = () => { scope[slot] = scope[slot] || {};
       const v = inp.value.split(/\\s+/).filter(Boolean);
-      scope[slot].keys = act.type==="command" ? inp.value : v; markDirty(); };
+      scope[slot].keys = act.type==="command" ? inp.value : v; updateChips(); markDirty(); };
     r2.append(lb2, inp); card.appendChild(r2);
+    const chips = document.createElement("div"); chips.className = "chips"; card.appendChild(chips);
+    const updateChips = () => {
+      chips.innerHTML = "";
+      let ks = (scope[slot] && scope[slot].keys) || [];
+      if(!Array.isArray(ks)) ks = String(ks).trim() ? ks.split(/\\s+/) : [];
+      (ks||[]).forEach(k => {
+        const c = document.createElement("span"); c.className = "chip"; c.textContent = k;
+        chips.appendChild(c);
+      });
+    };
+    updateChips();
 
     const r3 = document.createElement("div"); r3.className = "row";
     const lb3 = document.createElement("label"); lb3.textContent = "Catatan";
