@@ -11,7 +11,8 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 | Packaging | `packaging/PKGBUILD` (AUR `anticater-linux-hyprland-git`), terverifikasi `makepkg -f`. Daemon: config juga dicari di `/etc/anticater/app-mapping.json`. `4a2ebb3` |
 | Autostart | `exec-once` ditambahkan ke `~/.config/hypr/custom.lua` (ML4W, di **luar repo**): `hl.on("hyprland.start")` → jalankan daemon. Efektif saat login berikut |
 | Repro Hyprland | Draft sesuai template `bugs-input` (post manual, lihat Pending). `d927ebc` |
-| Ketahanan cabut/colok | Fix crash saat device hilang (`select` di luar guard → EBADF menembus; sekarang select & read keduanya dijaga, fd ditutup, loop reconnect). Commit saat ini |
+| Ketahanan cabut/colok | Fix crash saat device hilang (`select` di luar guard → EBADF menembus; sekarang select & read keduanya dijaga, fd ditutup, loop reconnect). Commit ini |
+| Probe uji wheel | `probes/probe_synthetic_input.py` — sekali-jalan, tanpa knob (injeksi uinput): veredik wheel SAMPAI/JATUH (exit 0/1). Terverifikasi 3× di 0.57.2: wheel JATUH |
 
 ## Environment (penting untuk sesi berikut)
 
@@ -29,8 +30,9 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
    `https://github.com/hyprwm/Hyprland/discussions/new?category=Bugs%20-%20Input`
    — template `bugs-input.yml` melarang laporan AI + 3 checkbox wajib. Draft material:
    `docs/hyprland-repro-0.57-synthetic-input.md`. Draf lama #17114 ditutup bot (strike 1/3), hapus lewat API dilarang.
-2. **Uji `hyprland 0.57.2-2.1`** (update tersedia): kalau button/axis sintetis sudah sampai app,
-   kembalikan profil Spotify ke `type: scroll` (asli) — verifikasi dengan window uji dulu.
+2. **Uji `hyprland 0.57.2-2.1`** (update tersedia): jalankan `python3 probes/probe_synthetic_input.py`
+   dari terminal sesi Hyprland. Wheel **SAMPAI (exit 0)** → kembalikan profil Spotify ke `type: scroll`
+   + konfirmasi manual putar knob. **JATUH (exit 1)** → tetap workaround PageUp/PageDown.
 3. **Submit AUR**: `makepkg --printsrcinfo > .SRCINFO` lalu push ke `aur.aur.archlinux.org`.
    Setelah terpasang: ganti path di `custom.lua` ke `/usr/bin/anticaterd`.
 4. **BLE battery**: `upower -d` (dongle input-only; kabel nol paket — belum ditest).
@@ -43,4 +45,6 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 
 - [hyprwm/Hyprland #15423](https://github.com/hyprwm/Hyprland/discussions/15423) — button state nyangkut (keluarga sama, belum ada rilis fix).
 - [hyprwm/Hyprland #15320](https://github.com/hyprwm/Hyprland/discussions/15320) — motion virtual device (difix #15003).
-- Fakta lokal: wheel/click sintetis (uinput REL_WHEEL / BTN_LEFT / XTEST btn 1,4,5) tidak pernah sampai klien (native & XWayland); motion & key sampai; `hyprctl devices` menampilkan device; `sendshortcut ,mouse_down` menampilkan frame di wev.
+- Fakta lokal (uji ulang 2026-11-27, 0.57.2): **wheel sintetis (uinput REL_WHEEL) tidak sampai** klien XWayland (3× konsisten); motion REL_X & key sampai; **klik BTN_LEFT sampai** di listener tanpa mask (diagnosa lama "button dibuang" kemungkinan false negative — listener GTK bermask).
+- **Jebakan GTK di 0.57.2**: `Gtk.Widget.add_events` (mask) membuat window berhenti menerima SEMUA event (enter pun mati; teruji). Listener harus tanpa mask + nama event Gdk pakai underscore (`ENTER_NOTIFY`, `KEY_PRESS`).
+- `hyprctl dispatch hl.dsp.cursor.move({…})` mengembalikan 'ok' dan memang memindahkan kursor (cek `hyprctl cursorpos`); `hl.dsp.focus` memindahkan fokus + aktif.
