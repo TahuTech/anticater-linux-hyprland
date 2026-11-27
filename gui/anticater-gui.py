@@ -339,10 +339,10 @@ PAGE = """<!doctype html>
   body { margin:0; background:var(--bg); color:var(--fg);
          font:13px/1.5 system-ui, -apple-system, sans-serif; }
   header { display:flex; align-items:center; gap:12px; padding:8px 16px;
-           border-bottom:1px solid var(--bd); background:var(--srf);
+           border-bottom:1px solid var(--bd); background:var(--elv);
            position:sticky; top:0; z-index:10; }
   header h1 { font-size:13px; margin:0; font-weight:500; letter-spacing:-.01em;
-              color:var(--mut); }
+              color:var(--fg); }
   header h1::before { content:"● "; color:var(--acc); }
   .spacer { flex:1; }
   .badge { background:var(--elv); border:1px solid var(--bd); border-radius:4px;
