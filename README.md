@@ -20,7 +20,7 @@ bukan bongkar ulang.
 | Daemon per-app (evdev → hyprctl → uinput/shell) | ✅ terverifikasi live (grab, profil, aksi, press+rotate) |
 | GUI (editor config + kontrol daemon, web lokal) | ✅ siap — `gui/anticater-gui.py` |
 | Saluran baterai USB | ❌ dongle input-only; kabel: sniff 30s = nol paket. BLE: belum ditest (`upower -d`) |
-| Packaging (PKGBUILD) | ⏳ rencana |
+| Packaging (PKGBUILD) | ✅ siap — `packaging/PKGBUILD` (AUR: `anticater-linux-hyprland-git`; submit manual) |
 
 ## Daemon per-app — `daemon/anticaterd.py`
 
@@ -71,7 +71,8 @@ exec-once = python3 /path/ke/anticater-linux-hyprland/daemon/anticaterd.py
 ```
 
 Config dicari berurutan: `$ANTICATER_CONFIG` → `~/.config/anticater/app-mapping.json`
-→ `config/app-mapping.json` (repo). `--config` untuk path khusus.
+→ `/etc/anticater/app-mapping.json` (default saat terpasang via paket) → `config/app-mapping.json`
+(repo). `--config` untuk path khusus.
 
 ### Format config — `config/app-mapping.json`
 

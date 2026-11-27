@@ -224,6 +224,9 @@ def default_config_path():
     usr = xdg / "anticater" / "app-mapping.json"
     if usr.exists():
         return usr
+    etc = Path("/etc/anticater/app-mapping.json")
+    if etc.exists():
+        return etc
     return Path(__file__).resolve().parent.parent / "config" / "app-mapping.json"
 
 
