@@ -119,6 +119,34 @@ def hyprctl_json(*args):
         return None
 
 
+def precheck(cfg):
+    """Tolak isian yang akan membuat normalize()/check_config() melempar
+    exception, dengan pesan yang menunjuk profil dan gesturnya."""
+    errs = []
+    scopes = [("global", cfg.get("global", {})), *cfg.get("apps", {}).items()]
+    for app, scope in scopes:
+        for slot, act in scope.items():
+            acts = [("%s/%s" % (app, slot), act)]
+            if act.get("type") == "sequence":
+                acts = [("%s/%s langkah %d" % (app, slot, i), st)
+                        for i, st in enumerate(act.get("steps", []), 1)]
+            for where, a in acts:
+                if not isinstance(a, dict):
+                    continue  # dilaporkan check_config
+                keys = a.get("keys")
+                if a.get("type") == "command" and isinstance(keys, str):
+                    try:
+                        shlex.split(keys)
+                    except ValueError as e:
+                        why = ("kutip belum ditutup" if "quotation" in str(e)
+                               else "garis miring terbalik (\\) di akhir")
+                        errs.append("%s: command tidak bisa dibaca, %s" % (where, why))
+                elif a.get("type") == "mouse" and "keys" in a and not keys:
+                    errs.append("%s: tombol mouse belum diisi (left, right, middle)"
+                                % where)
+    return errs
+
+
 class Gui:
     def __init__(self, cfg_path):
         self.cfg_path = Path(cfg_path)
@@ -176,6 +204,9 @@ class Gui:
         return cfg
 
     def save(self, cfg):
+        errs = precheck(cfg)
+        if errs:
+            return errs
         cfg = self.normalize(cfg)
         errs = check_config(cfg)
         if errs:
@@ -275,7 +306,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
             cfg = req.get("config")
             if not isinstance(cfg, dict):
                 return self._json(400, {"error": "config harus objek"})
-            errs = g.save(cfg)
+            try:
+                errs = g.save(cfg)
+            except Exception as e:  # selalu jawab, jangan putus koneksi diam-diam
+                why = "%s: %s" % (type(e).__name__, e)
+                g.note("gagal menyimpan config: %s" % why)
+                return self._json(500, {"errors": [why]})
             if errs:
                 return self._json(400, {"errors": errs})
             return self._json(200, {"ok": True})
@@ -328,134 +364,309 @@ PAGE = """<!doctype html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ANTICATER — kontrol knob</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Ccircle cx='12' cy='12' r='9' fill='none' stroke='%23e0b95b' stroke-width='3'/%3E%3C/svg%3E">
 <style>
   :root { color-scheme: dark;
-    --fg: #dcd7ce; --mut: #6e6f74; --bg: #0d0e10; --srf: #151619;
-    --elv: #1c1d21; --bd: #2a2b2e; --acc: #c4a86c; --acc2: #5a6e82;
-    --ok: #7fa882; --err: #c4746e;
-    --key: #7a9ec0; --scroll: #6b9e8a; --mouse: #9b8ab8;
-    --cmd: #8a9e78; --seq: #c49560; }
+    /* neutral */
+    --bg: #101114; --surface: #17191d; --surface-2: #1f2227; --surface-3: #292d33;
+    --border: #31353d; --border-control: #686f7b;
+    --text: #eceef1; --text-muted: #a9aeb8;
+    /* satu aksen: hanya "aktif / dapat ditindaklanjuti" */
+    --accent: #e0b95b; --accent-hover: #ecca78; --accent-soft: rgba(224,185,91,.12);
+    --on-accent: #17130a;
+    /* hanya aksi destruktif */
+    --danger: #ff8d85; --danger-border: #a85650; --danger-soft: rgba(255,141,133,.12);
+    /* spasi 4/8 */
+    --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s6: 24px; --s8: 32px;
+    --radius: 8px; --control-h: 36px;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", monospace; }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--fg);
-         font:13px/1.5 system-ui, -apple-system, sans-serif; }
-  header { display:flex; align-items:center; gap:12px; padding:8px 16px;
-           border-bottom:1px solid var(--bd); background:var(--elv);
-           position:sticky; top:0; z-index:10; }
-  header h1 { font-size:13px; margin:0; font-weight:500; letter-spacing:-.01em;
-              color:var(--fg); }
-  header h1::before { content:"● "; color:var(--acc); }
-  .spacer { flex:1; }
-  .badge { background:var(--elv); border:1px solid var(--bd); border-radius:4px;
-           padding:1px 9px; font-family:ui-monospace,SF Mono,monospace; font-size:11px; }
-  .dot { display:inline-block; width:6px; height:6px; border-radius:50%;
-         background:var(--err); margin-right:5px; }
-  .dot.on { background:var(--ok); }
-  button { background:var(--elv); color:var(--fg); border:1px solid var(--bd);
-           border-radius:4px; padding:4px 11px; cursor:pointer;
-           font-family:system-ui,-apple-system,sans-serif; font-size:12px;
-           transition:border-color .12s; }
-  button:hover { border-color:var(--acc); }
-  button.primary { background:var(--acc); border-color:var(--acc);
-                   color:#0d0e10; font-weight:600; }
-  button.on { border-color:var(--acc); color:var(--acc); background:var(--elv); }
-  #editor { grid-column:2; grid-row:2; padding:0; overflow-y:auto;
-            display:flex; justify-content:center; }
-  #editor-inner { width:100%; max-width:640px; padding:20px; }
-  #practicebar { grid-column:2; grid-row:1; margin:10px 16px 0; padding:7px 14px;
-                 border:1px solid var(--acc); border-radius:4px; background:var(--elv);
-                 color:var(--fg); font-size:12px; display:flex; gap:8px; align-items:center; }
-  #practicebar b { color:var(--acc); }
-  button:disabled { opacity:.4; cursor:default; }
-  main { display:grid; grid-template-columns: 240px 1fr; gap:0; min-height:calc(100vh - 43px); }
-  aside { border-right:1px solid var(--bd); padding:10px 12px; background:var(--srf); overflow-y:auto; }
-  aside h2 { font-size:10px; text-transform:uppercase; letter-spacing:.1em;
-             color:var(--mut); margin:16px 0 6px; font-weight:500; }
-  .app { display:flex; align-items:center; justify-content:space-between; width:100%;
-         background:none; border:1px solid transparent; border-radius:4px;
-         padding:5px 8px; margin:1px 0; text-align:left;
-         font-family:system-ui,-apple-system,sans-serif; font-size:12px;
-         transition:border-color .1s; }
-  .app:hover { border-color:var(--bd); }
-  .app.active { border-color:var(--acc); background:#1a1b1d; }
-  .app .x { color:var(--mut); margin-left:6px; font-size:10px; font-family:ui-monospace,monospace; }
-  .app .x:hover { color:var(--err); }
-  .addrow { display:flex; gap:5px; margin-top:8px; }
-  .addrow input { flex:1; background:var(--elv); border:1px solid var(--bd); color:var(--fg);
-                  border-radius:4px; padding:4px 7px; font-family:ui-monospace,monospace; font-size:11px; }
-  section { padding:0; overflow-y:auto; }
-  .slot { border:1px solid var(--bd); border-radius:4px; padding:14px 16px;
-          margin-bottom:10px; background:var(--srf);
-          transition:border-color .12s; }
-  .slot h3 { margin:0 0 10px; font-size:12px; font-weight:500; color:var(--mut);
-             text-transform:uppercase; letter-spacing:.06em; }
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .row label { color:var(--mut); font-size:11px; min-width:80px; }
-  select, input[type=text] { background:var(--elv); border:1px solid var(--bd); color:var(--fg);
-          border-radius:4px; padding:4px 7px; font-family:ui-monospace,SF Mono,monospace;
-          font-size:11px; }
-  select:focus, input[type=text]:focus { outline:none; border-color:var(--acc); }
-  input[type=text].keys { min-width:260px; flex:1; }
-  .hint { color:var(--mut); font-size:10px; margin-top:4px; }
-  .knobwrap { display:flex; justify-content:center; margin-bottom:20px; }
-  .knobwrap svg { width:100%; max-width:320px; height:auto; }
-  .zone { cursor:pointer; }
-  .zone:hover rect, .zone:hover circle, .zone:hover path { stroke-width:2; }
-  .zone.sel rect, .zone.sel circle, .zone.sel path, .zone.sel polygon { stroke:var(--acc); stroke-width:2; }
-  .zone.sel { filter:none; }
-  .zone.sel text { fill:var(--acc); }
-  .chips { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
-  .chip { background:var(--elv); border:1px solid var(--bd); border-radius:3px;
-          padding:2px 7px; font-family:ui-monospace,SF Mono,monospace;
-          font-size:11px; color:var(--fg); }
-  .slot { transition:border-color .12s; }
-  .slot.sel { border-color:var(--acc); }
-  #editor-inner h2 { font-size:14px; font-weight:500; margin:0 0 16px; color:var(--fg); }
-  .record { background:var(--elv); border:1px solid var(--bd); border-radius:3px; padding:3px 9px;
-            color:var(--mut); font-size:11px; cursor:pointer; white-space:nowrap; }
-  .record:hover { border-color:var(--acc); color:var(--fg); }
-  .record.armed { border-color:var(--acc); color:var(--acc); }
-  .steps { display:flex; flex-direction:column; gap:5px; margin:6px 0 8px; }
-  .steps .row label { min-width:0; }
-  .record.dx { color:var(--err); padding:2px 8px; font-size:10px; }
-  .record.add { align-self:flex-start; border-style:dashed; color:var(--mut); }
-  .record.add:hover { color:var(--acc); }
-  #savebar { position:sticky; bottom:0; display:flex; gap:10px; align-items:center;
-             padding:8px 20px; background:linear-gradient(transparent, var(--bg) 35%);
-             border-top:1px solid var(--bd); }
-  #savebar .msg { color:var(--err); font-size:11px; }
-  #logbox { position:fixed; right:0; bottom:0; width:400px; max-height:40vh;
-            background:var(--srf); border:1px solid var(--bd); border-radius:4px 0 0 0;
-            display:flex; flex-direction:column; }
-  #logbox summary { cursor:pointer; padding:5px 12px; color:var(--mut); font-size:11px; }
-  #loglines { overflow-y:auto; padding:0 12px 8px; margin:0;
-              font:10px/1.4 ui-monospace,SF Mono,monospace;
-              white-space:pre-wrap; word-break:break-all; color:var(--mut); }
-  details#logbox:not([open]) #loglines { display:none; }
+  [hidden] { display:none !important; }
+  html, body { height:100%; }
+  body { margin:0; display:flex; flex-direction:column; overflow:hidden;
+         background:var(--bg); color:var(--text);
+         font:14px/1.5 system-ui, -apple-system, sans-serif; }
+  .icon { width:16px; height:16px; flex:none; fill:none; stroke:currentColor; stroke-width:2;
+          stroke-linecap:round; stroke-linejoin:round; }
+
+  /* ---- kontrol ---- */
+  button { display:inline-flex; align-items:center; justify-content:center; gap:var(--s2);
+           height:var(--control-h); padding:0 var(--s3); white-space:nowrap; cursor:pointer;
+           background:var(--surface-2); color:var(--text); border:1px solid var(--border-control);
+           border-radius:var(--radius); font:500 14px/1 system-ui, -apple-system, sans-serif;
+           transition:background-color .12s, border-color .12s; }
+  button:hover:not(:disabled) { background:var(--surface-3); border-color:var(--text-muted); }
+  button:focus-visible, input:focus-visible, select:focus-visible, pre:focus-visible {
+           outline:2px solid var(--accent); outline-offset:2px; }
+  button:disabled { cursor:default; color:var(--text-muted); border-color:var(--border);
+                    background:transparent; }
+  button.primary:not(:disabled) { background:var(--accent); border-color:var(--accent);
+                    color:var(--on-accent); font-weight:600; }
+  button.primary:hover:not(:disabled) { background:var(--accent-hover); border-color:var(--accent-hover); }
+  button.danger { background:transparent; border-color:var(--danger-border); color:var(--danger); }
+  button.danger:hover:not(:disabled) { background:var(--danger-soft); border-color:var(--danger); }
+  button.on { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
+  button.icon-btn { width:28px; height:28px; padding:0; background:transparent;
+                    border-color:transparent; color:var(--text-muted); }
+  button.icon-btn:hover:not(:disabled) { color:var(--text); border-color:transparent; }
+  button.icon-btn.dx:hover:not(:disabled) { color:var(--danger); background:var(--danger-soft); }
+  select, input[type=text], input:not([type]) {
+           height:var(--control-h); min-width:0; padding:0 var(--s3);
+           background:var(--surface-2); color:var(--text); border:1px solid var(--border-control);
+           border-radius:var(--radius); font:13px var(--mono); }
+  input::placeholder { color:var(--text-muted); opacity:1; }
+  input[list] { padding-right:var(--s8); text-overflow:ellipsis; }
+  label { font-size:13px; font-weight:500; color:var(--text-muted); }
+
+  /* ---- header ---- */
+  header { flex:none; display:grid; align-items:center; gap:var(--s4);
+           grid-template-columns:minmax(max-content,1fr) minmax(0,auto) minmax(max-content,1fr);
+           height:56px; padding:0 var(--s4); background:var(--surface);
+           border-bottom:1px solid var(--border); }
+  .brand { display:flex; align-items:center; gap:var(--s2); }
+  .brand .icon { width:24px; height:24px; color:var(--text); }
+  .brand h1 { margin:0; font-size:16px; font-weight:600; letter-spacing:.04em; }
+  .brand small { font-size:13px; color:var(--text-muted); }
+  .status { display:flex; gap:var(--s2); min-width:0; justify-content:center; }
+  .pill { display:flex; align-items:center; gap:var(--s2); height:32px; padding:0 var(--s3);
+          border:1px solid var(--border); border-radius:16px; font-size:13px;
+          color:var(--text-muted); white-space:nowrap; }
+  .pill.focus { min-width:0; }
+  .pill.focus b { overflow:hidden; text-overflow:ellipsis; color:var(--text);
+                  font:500 13px var(--mono); }
+  .dot { width:8px; height:8px; border-radius:50%; border:1.5px solid var(--text-muted); }
+  .pill.on { color:var(--text); }
+  .pill.on .dot { background:var(--accent); border-color:var(--accent); }
+  .actions { display:flex; gap:var(--s2); justify-content:flex-end; }
+  .actions #savebtn { min-width:104px; }
+
+  /* ---- strip mode latihan ---- */
+  #practicebar { flex:none; display:flex; align-items:center; gap:var(--s2); height:40px;
+                 padding:0 var(--s4); background:var(--accent-soft);
+                 border-bottom:1px solid var(--border); font-size:13px; white-space:nowrap; }
+  #practicebar .icon { color:var(--accent); }
+  #practicebar .ptext { overflow:hidden; text-overflow:ellipsis; }
+
+  /* ---- tab profil ---- */
+  nav { flex:none; display:flex; align-items:center; gap:var(--s2); height:52px;
+        padding:0 var(--s4); border-bottom:1px solid var(--border); }
+  #tabs { display:flex; gap:var(--s2); min-width:0; overflow-x:auto; padding:var(--s1);
+          scrollbar-width:thin; }
+  .tab { flex:none; display:flex; align-items:center; height:var(--control-h);
+         border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+  .tab:hover { border-color:var(--border-control); }
+  .tab .app { height:100%; background:transparent; border:0; border-radius:var(--radius);
+              color:var(--text-muted); }
+  .tab .app:hover:not(:disabled) { background:transparent; color:var(--text); }
+  .tab .x { margin-right:var(--s1); }
+  .tab:has(.app.active) { border-color:var(--accent); background:var(--accent-soft); }
+  .tab .app.active, .tab .app.active:hover:not(:disabled) { color:var(--accent); font-weight:600; }
+  #addbtn { flex:none; width:var(--control-h); padding:0; }
+
+  /* ---- area utama ---- */
+  main { flex:1; min-height:0; overflow:auto; display:flex; padding:var(--s4); }
+  .workspace { --knob:clamp(400px, calc(100vh - 480px), 460px);
+               margin:auto; width:100%; max-width:1440px; display:grid; gap:var(--s4);
+               grid-template-columns:minmax(0,1fr) clamp(340px, 30vw, 460px); }
+  .panel { background:var(--surface); border:1px solid var(--border); border-radius:12px; }
+  #knobcol { padding:var(--s4) var(--s4) var(--s6); min-width:0; }
+  .head h2 { margin:0; font-size:18px; font-weight:600; overflow-wrap:anywhere; }
+  .head p { margin:var(--s1) 0 var(--s4); font-size:13px; color:var(--text-muted); }
+  .knobgrid { display:grid; justify-content:center; column-gap:var(--s2); row-gap:var(--s2);
+              grid-template-columns:minmax(136px,1fr) var(--knob) minmax(136px,1fr);
+              max-width:calc(var(--knob) + 496px); margin:0 auto; }
+  .side { display:grid; grid-template-rows:repeat(3, minmax(0,1fr)); align-items:center; }
+  .knobsvg { display:block; width:100%; aspect-ratio:1; align-self:center; }
+  .pressrow { grid-column:2; justify-self:center; width:min(240px,100%); margin-top:calc(var(--s8) * -1);
+              position:relative; }
+  .glabel { flex-direction:column; align-items:stretch; gap:var(--s1); width:100%; height:auto;
+            min-height:80px; padding:var(--s2) var(--s3); text-align:left;
+            background:var(--surface-2); border-color:var(--border); min-width:0; }
+  .glabel span { display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .glabel .gname { display:flex; align-items:center; gap:var(--s2); font-size:13px;
+                   font-weight:600; color:var(--text-muted); white-space:normal; line-height:1.3; }
+  .glabel .gaction { font-size:15px; line-height:1.35; white-space:normal; overflow-wrap:anywhere;
+                     display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; }
+  .glabel .gkeys { font:13px/1.4 var(--mono); color:var(--text-muted); }
+  .glabel.off .gaction { color:var(--text-muted); font-weight:400; }
+  .glabel.off { border-style:dashed; border-color:var(--border-control); background:transparent; }
+  .glabel.sel, .glabel.sel:hover:not(:disabled) { border:1px solid var(--accent);
+                   background:var(--accent-soft); box-shadow:inset 0 0 0 1px var(--accent); }
+  .glabel.sel .gname { color:var(--accent); }
+
+  .knobsvg .body { fill:var(--surface-2); stroke:var(--border-control); stroke-width:1.5; }
+  .knobsvg .knurl { fill:none; stroke:var(--border-control); stroke-width:10; stroke-dasharray:2 7; opacity:.6; }
+  .zone { cursor:pointer; color:var(--text-muted); }
+  .zone.off { color:var(--border-control); }
+  .zone:hover { color:var(--text); }
+  .zone.sel { color:var(--accent); }
+  .zone .hit { fill:none; stroke:transparent; stroke-width:32; pointer-events:stroke; }
+  .zone .arc { fill:none; stroke:currentColor; stroke-width:6; stroke-linecap:round; }
+  .zone .arc.hold { stroke-dasharray:2 10; }
+  .zone.sel .arc { stroke-width:9; }
+  .zone .head-tip { fill:currentColor; stroke:none; }
+  .zone .cap { fill:var(--surface); stroke:currentColor; stroke-width:2; }
+  .zone.sel .cap { fill:var(--accent-soft); stroke-width:4; }
+  .zone .capdot { fill:currentColor; }
+
+  /* ---- editor aksi ---- */
+  #editor { padding:var(--s4); min-width:0; }
+  .slot { display:none; flex-direction:column; gap:var(--s4); }
+  .slot.sel { display:flex; }
+  .slot h3 { display:flex; align-items:center; gap:var(--s2); margin:0; padding-bottom:var(--s3);
+             border-bottom:1px solid var(--border); font-size:16px; font-weight:600; }
+  .field { display:flex; flex-direction:column; gap:var(--s1); }
+  .row { display:flex; gap:var(--s2); align-items:center; }
+  .row input { flex:1; }
+  .chips { display:flex; flex-wrap:wrap; gap:var(--s1); }
+  .chips:empty { display:none; }
+  .chip { background:var(--surface-2); border:1px solid var(--border); border-bottom-width:3px;
+          border-radius:4px; padding:var(--s1) var(--s2); font:13px/1.3 var(--mono);
+          overflow-wrap:anywhere; }
+  .steps { display:flex; flex-direction:column; gap:var(--s2); }
+  .record.armed, .record.armed:hover:not(:disabled) { border-color:var(--accent);
+          color:var(--accent); background:var(--accent-soft); }
+  .record.add { align-self:flex-start; border-style:dashed; }
+  .hint { margin:0; font-size:13px; color:var(--text-muted); }
+  .field-note { display:flex; align-items:flex-start; gap:var(--s2); margin:0; font-size:13px;
+                font-weight:600; }
+  .field-note .icon { margin-top:2px; }
+  input[aria-invalid=true] { border:2px solid var(--text); }
+  input[readonly] { border-style:dashed; color:var(--text-muted); }
+
+  /* ---- log & bar bawah ---- */
+  body:has(#logbox:not([hidden])) .workspace { --knob:400px; }
+  #logbox { flex:none; height:min(200px, 30vh); display:flex; background:var(--surface);
+            border-top:1px solid var(--border); }
+  #loglines { flex:1; overflow:auto; margin:0; padding:var(--s3) var(--s4);
+              font:13px/1.5 var(--mono); white-space:pre-wrap; overflow-wrap:anywhere;
+              color:var(--text-muted); }
+  #loglines:empty::before { content:"Belum ada log."; }
+  footer { flex:none; display:flex; align-items:center; gap:var(--s4); min-height:44px;
+           padding:var(--s1) var(--s4); background:var(--surface);
+           border-top:1px solid var(--border); font-size:13px; }
+  .msg { flex:1; min-width:0; display:flex; align-items:center; gap:var(--s2); }
+  .msg span { overflow-wrap:anywhere; max-height:4.5em; overflow-y:auto; }
+  .msg:not(.show) .icon { display:none; }
+  .msg.err { font-weight:600; }
+  .path { display:flex; min-width:0; max-width:50%; color:var(--text-muted); font:13px var(--mono); }
+  .path .dir { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .path .file { flex:none; color:var(--text); }
+  footer button { flex:none; height:32px; font-size:13px; }
+  footer button .chev { transition:transform .12s; }
+  footer button[aria-expanded=true] .chev { transform:rotate(180deg); }
+
+  /* ---- dialog tambah profil ---- */
+  dialog { width:min(440px, calc(100vw - 32px)); padding:0; color:var(--text);
+           background:var(--surface); border:1px solid var(--border-control); border-radius:12px; }
+  dialog::backdrop { background:rgba(0,0,0,.6); }
+  .dlg-head { display:flex; align-items:center; justify-content:space-between;
+              padding:var(--s3) var(--s4); border-bottom:1px solid var(--border); }
+  .dlg-head h2 { margin:0; font-size:16px; }
+  .dlg-sec { display:flex; flex-direction:column; gap:var(--s2); padding:var(--s4); }
+  .dlg-sec + .dlg-sec { border-top:1px solid var(--border); }
+  .dlg-sec h3 { margin:0; font-size:14px; }
+  .dlg-sec p { margin:0; overflow-wrap:anywhere; }
+  .dlg-err { display:flex; align-items:center; gap:var(--s2); font-size:13px; font-weight:600; }
+  .dlg-actions { display:flex; justify-content:flex-end; gap:var(--s2); margin-top:var(--s2); }
+  .row select { flex:1; }
+  .steps .row select { flex:none; }
+
+  /* ---- responsif ---- */
+  @media (max-width:1279px) {
+    .workspace { --knob:400px; grid-template-columns:minmax(0,1fr) 340px; }
+    #knobcol { padding-left:var(--s1); padding-right:var(--s1); }
+    .knobgrid { column-gap:var(--s1); }
+    .head { padding:0 var(--s2); }
+    .brand small { display:none; }
+  }
+  @media (max-width:1079px) {
+    .workspace { grid-template-columns:minmax(0,1fr); max-width:760px; }
+    .brand h1 { display:none; }
+  }
 </style>
 </head>
 <body>
+<svg xmlns="http://www.w3.org/2000/svg" hidden>
+  <symbol id="i-logo" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><path d="M12 3v4"/></symbol>
+  <symbol id="i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18"/></symbol>
+  <symbol id="i-window" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/></symbol>
+  <symbol id="i-practice" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1"/></symbol>
+  <symbol id="i-power" viewBox="0 0 24 24"><path d="M12 3v9M6.3 7a8 8 0 1 0 11.4 0"/></symbol>
+  <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zM7 3v6h8V3M7 21v-7h10v7"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+  <symbol id="i-keyboard" viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 13l4 4L19 7"/></symbol>
+  <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4L2 20h20zM12 10v4M12 17h.01"/></symbol>
+  <symbol id="i-log" viewBox="0 0 24 24"><path d="M4 7l5 5-5 5M12 17h8"/></symbol>
+  <symbol id="i-chevron" viewBox="0 0 24 24"><path d="M6 15l6-6 6 6"/></symbol>
+  <symbol id="i-ccw" viewBox="0 0 24 24"><path d="M3 4v6h6M3.5 10a9 9 0 1 1 .5 6"/></symbol>
+  <symbol id="i-cw" viewBox="0 0 24 24"><path d="M21 4v6h-6M20.5 10a9 9 0 1 0-.5 6"/></symbol>
+  <symbol id="i-press" viewBox="0 0 24 24"><path d="M12 3v9M8 9l4 4 4-4M4 20h16"/></symbol>
+</svg>
+
 <header>
-  <h1>ANTICATER — kontrol knob</h1>
-  <span class="badge">fokus: <b id="focus">…</b></span>
-  <span class="badge"><span class="dot" id="dot"></span><span id="dstate">daemon mati</span></span>
-  <span class="spacer"></span>
-  <button id="practicebtn" onclick="togglePractice()" title="Klik zona untuk melihat aksi yang akan dijalankan — tanpa fokus kartu">🛠️ Mode latihan</button>
-  <button id="daemonbtn" onclick="toggleDaemon()">Nyalakan daemon</button>
+  <div class="brand">
+    <svg class="icon" aria-hidden="true"><use href="#i-logo"/></svg>
+    <h1>ANTICATER</h1> <small>kontrol knob</small>
+  </div>
+  <div class="status">
+    <span class="pill" id="dpill"><span class="dot" id="dot"></span><span id="dstate">memuat…</span></span>
+    <span class="pill focus"><svg class="icon" aria-hidden="true"><use href="#i-window"/></svg>Fokus: <b id="focus">…</b></span>
+  </div>
+  <div class="actions">
+    <button id="practicebtn" aria-pressed="false" onclick="togglePractice()" title="Klik gestur untuk melihat aksi yang akan dijalankan — tanpa memindah fokus ke editor"><svg class="icon" aria-hidden="true"><use href="#i-practice"/></svg>Mode latihan</button>
+    <button id="daemonbtn" onclick="toggleDaemon()"><svg class="icon" aria-hidden="true"><use href="#i-power"/></svg><span id="daemonlabel">Nyalakan daemon</span></button>
+    <button class="primary" id="savebtn" onclick="save()" disabled><svg class="icon" aria-hidden="true"><use href="#i-save"/></svg>Simpan</button>
+  </div>
 </header>
+<div id="practicebar" role="status" hidden>
+  <svg class="icon" aria-hidden="true"><use href="#i-practice"/></svg>
+  <span class="ptext"><b>Mode latihan</b> · profil <b id="pprofile"></b> ·
+    <span id="phint">klik gestur pada knob untuk melihat aksinya.</span>
+    <span id="presult" hidden>gestur <b id="pgesture"></b> akan menjalankan <b id="paction"></b></span></span>
+</div>
+<nav aria-label="Profil">
+  <div id="tabs">
+    <div class="tab"><button class="app active" id="app-__global__" onclick="select('__global__', this)"><svg class="icon" aria-hidden="true"><use href="#i-globe"/></svg>global</button></div>
+    <div id="applist" style="display:contents"></div>
+  </div>
+  <button id="addbtn" onclick="openAdd()" aria-label="Tambah app atau terapkan template" title="Tambah app / template" aria-haspopup="dialog"><svg class="icon" aria-hidden="true"><use href="#i-plus"/></svg></button>
+</nav>
 <main>
-  <aside>
-    <h2>Profil</h2>
-    <button class="app active" id="app-__global__" onclick="select('__global__', this)">🌐 global</button>
-    <div id="applist"></div>
-    <h2>Tambah app (WM_CLASS)</h2>
-    <div class="addrow">
-      <input id="newapp" list="wlist" placeholder="mis. brave-browser" onkeydown="if(event.key==='Enter')addApp()">
+  <div class="workspace">
+    <section id="knobcol" class="panel" aria-label="Knob"></section>
+    <aside id="editor" class="panel" aria-label="Editor aksi"><div id="editor-inner"></div></aside>
+  </div>
+</main>
+<section id="logbox" aria-label="Log daemon" hidden><pre id="loglines" tabindex="0"></pre></section>
+<footer>
+  <div class="msg" id="msgbox" role="status" aria-live="polite"><svg class="icon" aria-hidden="true"><use id="msgicon" href="#i-check"/></svg><span id="msg"></span></div>
+  <span class="path" id="cfgpath"><span class="dir"></span><span class="file"></span></span>
+  <button id="logbtn" aria-expanded="false" aria-controls="logbox" onclick="toggleLog()"><svg class="icon" aria-hidden="true"><use href="#i-log"/></svg>Log daemon<svg class="icon chev" aria-hidden="true"><use href="#i-chevron"/></svg></button>
+</footer>
+
+<dialog id="adddlg" aria-labelledby="addtitle" onclick="if(event.target===this) this.close()">
+  <div class="dlg-head">
+    <h2 id="addtitle">Tambah profil</h2>
+    <button class="icon-btn" onclick="$('adddlg').close()" aria-label="Tutup"><svg class="icon" aria-hidden="true"><use href="#i-x"/></svg></button>
+  </div>
+  <div class="dlg-sec">
+    <h3>Tambah app</h3>
+    <label for="newapp">WM_CLASS aplikasi</label>
+    <div class="row">
+      <input id="newapp" list="wlist" placeholder="mis. kitty" autocomplete="off" onkeydown="if(event.key==='Enter'){event.preventDefault();addApp();}">
       <datalist id="wlist"></datalist>
-      <button onclick="addApp()">+</button>
+      <button onclick="addApp()">Tambah</button>
     </div>
-    <h2>Template</h2>
-    <div class="addrow">
-      <select id="tpl">
+    <p class="hint">Pilih dari jendela yang sedang terbuka atau ketik manual.</p>
+  </div>
+  <div class="dlg-sec">
+    <h3>Template</h3>
+    <label for="tpl">Terapkan ke profil aktif: <b id="tpltarget"></b></label>
+    <div class="row">
+      <select id="tpl" onchange="$('tplerr').hidden=true">
         <option value="browser">Browser</option>
         <option value="code">Menulis kode</option>
         <option value="media">Media</option>
@@ -464,125 +675,170 @@ PAGE = """<!doctype html>
       </select>
       <button onclick="applyTpl()">Terapkan</button>
     </div>
-  </aside>
-  <div id="practicebar" hidden>🛠️ <b id="pprofile">global</b> — gestur <b id="pgesture">…</b> akan menjalankan <b id="paction">…</b></div>
-  <section id="editor"><div id="editor-inner"></div></section>
-</main>
-<div id="savebar">
-  <button class="primary" id="savebtn" onclick="save()" disabled>Simpan</button>
-  <span class="msg" id="msg"></span>
-  <span class="spacer" style="flex:1"></span>
-  <span class="badge" id="cfgpath"></span>
-</div>
-<details id="logbox">
-  <summary>Log daemon</summary>
-  <pre id="loglines"></pre>
-</details>
+    <p class="hint">Menimpa aksi kelima gestur. Tersimpan setelah Anda klik Simpan.</p>
+    <p class="dlg-err" id="tplerr" role="alert" hidden><svg class="icon" aria-hidden="true"><use href="#i-alert"/></svg><span id="tplerrtext"></span></p>
+  </div>
+</dialog>
+
+<dialog id="deldlg" aria-labelledby="deltitle" aria-describedby="deldesc" onclick="if(event.target===this) this.close()">
+  <div class="dlg-head"><h2 id="deltitle">Hapus profil?</h2></div>
+  <div class="dlg-sec">
+    <p id="deldesc">Profil <b id="delname"></b> beserta aksi gesturnya akan dihapus. File config baru berubah setelah Anda klik Simpan.</p>
+    <div class="dlg-actions">
+      <button id="delcancel" onclick="$('deldlg').close()">Batal</button>
+      <button id="delconfirm" class="danger" onclick="confirmRemove()">Hapus profil</button>
+    </div>
+  </div>
+</dialog>
 <script>
 "use strict";
 const $ = id => document.getElementById(id);
 const SLOTS = ["rotate_left","rotate_right","press","press_rotate_left","press_rotate_right"];
-const SLOT_NAMES = {rotate_left:"Rotasi kiri",rotate_right:"Rotasi kanan",press:"Tekan",
-  press_rotate_left:"Tekan + rotasi kiri",press_rotate_right:"Tekan + rotasi kanan"};
+const SLOT_NAMES = {rotate_left:"Putar kiri",rotate_right:"Putar kanan",press:"Tekan",
+  press_rotate_left:"Tahan + putar kiri",press_rotate_right:"Tahan + putar kanan"};
+const SLOT_ICONS = {rotate_left:"ccw",rotate_right:"cw",press:"press",
+  press_rotate_left:"ccw",press_rotate_right:"cw"};
 const TYPES = ["key","shortcut","mouse","scroll","command","sequence","noop"];
-const TYPE_COLORS = {key:"#7a9ec0", shortcut:"#7a9ec0", scroll:"#6b9e8a",
-  mouse:"#9b8ab8", command:"#8a9e78", sequence:"#c49560", noop:"#3a3c40"};
+const TEMPLATES = /*TEMPLATES*/null;   // diisi server dari TEMPLATES (Python)
 let CFG = null, SEL = "__global__", DIRTY = false;
 
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",
   '"':"&quot;","'":"&#39;"}[c])); }
 
+function ico(n){ return '<svg class="icon" aria-hidden="true"><use href="#i-'+n+'"/></svg>'; }
+
+// 'keys' bisa berupa string selagi aksi command sedang diketik (belum disimpan)
+function keyText(k, sep){ return Array.isArray(k) ? k.join(sep) : String(k||""); }
+
+/* ---------- command <-> argv ----------
+   Di disk argv berupa array. Di input ia ditampilkan berkutip sehingga
+   shlex.split (Python, saat menyimpan) menghasilkan array yang sama. */
+function quoteArg(a){
+  a = String(a);
+  if(a && !/[\\s'"\\\\]/.test(a)) return a;
+  if(!a.includes("'")) return "'" + a + "'";
+  return '"' + a.replace(/[\\\\"]/g, "\\\\$&") + '"';
+}
+function cmdText(k){ return Array.isArray(k) ? k.map(quoteArg).join(" ") : String(k||""); }
+// padanan shlex.split (POSIX): hasilnya {args} atau {error}
+function splitCmd(s){
+  const args = []; let cur = null, q = "";
+  for(let i=0; i<s.length; i++){
+    const c = s[i];
+    if(c === "\\\\" && q !== "'"){
+      const n = s[++i];
+      if(n === undefined) return {error:"Garis miring terbalik (\\\\) di akhir tidak diikuti karakter."};
+      // di dalam "..." backslash hanya meloloskan " dan backslash
+      cur = (cur||"") + (q === '"' && n !== '"' && n !== "\\\\" ? c + n : n);
+    } else if(q){
+      if(c === q) q = ""; else cur += c;
+    } else if(c === "'" || c === '"'){ q = c; cur = cur||""; }
+    else if(" \\t\\r\\n".includes(c)){ if(cur !== null){ args.push(cur); cur = null; } }
+    else cur = (cur||"") + c;
+  }
+  if(q) return {error:"Kutip " + (q === "'" ? "tunggal (')" : 'ganda (")') + " belum ditutup."};
+  if(cur !== null) args.push(cur);
+  return {args};
+}
+// catatan di bawah input command
+function cmdNote(inp){
+  const el = document.createElement("p"); el.className = "field-note";
+  el.setAttribute("role", "status"); el.innerHTML = ico("alert") + "<span></span>";
+  const check = (type, keys) => {
+    let t = ""; inp.readOnly = false;
+    if(type === "command"){
+      if(Array.isArray(keys) && keys.some(a => /[\\r\\n]/.test(a))){
+        inp.readOnly = true;   // input satu baris akan membuang baris barunya
+        t = "Argumen berisi baris baru. Ubah lewat file config agar tidak rusak.";
+      } else if(!Array.isArray(keys)){
+        const e = splitCmd(String(keys||"")).error;
+        if(e) t = e + " Belum bisa disimpan.";
+      }
+    }
+    el.hidden = !t; el.lastChild.textContent = t;
+    inp.setAttribute("aria-invalid", !!t && !inp.readOnly);
+  };
+  return {el, check};
+}
+
 function actSum(a){
   if(!a || a.type === "noop") return "noop";
   if(a.type === "sequence")
     return "sequence " + ((a.steps||[]).length) + " langkah";
-  return a.type + ((a.keys && a.keys.length) ? " " + a.keys.join(" + ") : "");
+  const k = a.type === "command" ? cmdText(a.keys) : keyText(a.keys, " + ");
+  return a.type + (k ? " " + k : "");
 }
 
-function markDirty(){ if(!DIRTY){ DIRTY=true; $("savebtn").disabled=false; } }
+function curScope(){ return SEL==="__global__" ? CFG.global : (CFG.apps[SEL] || {}); }
+function profileName(){ return SEL==="__global__" ? "global" : SEL; }
 
-function renderKnob(scope){
-  const G = (slot, path, label) => {
-    const a = scope[slot] || {type:"noop"};
-    const on = a.type !== "noop";
-    const col = TYPE_COLORS[a.type] || TYPE_COLORS.noop;
-    const sc = on ? col : "var(--bd)";
-    const sw = on ? "1.5" : "1";
-    return '<g class="zone" data-slot="'+slot+'" onclick="focusSlot(\\''+slot+'\\')">'+
-      '<title>'+esc(SLOT_NAMES[slot]+": "+actSum(a))+'</title>'+
-      path(sc, sw)+label(sc, on)+'</g>';
+function markDirty(){
+  if(!DIRTY){ DIRTY=true; $("savebtn").disabled=false; }
+  updateKnob(); renderPractice();
+}
+
+/* ---------- knob ---------- */
+function renderKnob(){
+  const C = 200, R = 180;
+  const pt = (deg, r) => [(C + r*Math.cos(deg*Math.PI/180)).toFixed(1),
+                          (C - r*Math.sin(deg*Math.PI/180)).toFixed(1)];
+  // busur dari sudut a ke b; kepala panah di ujung b, searah putaran
+  const arc = (slot, a, b, hold) => {
+    const d = Math.sign(b - a);
+    const path = "M"+pt(a,R)+" A"+R+","+R+" 0 0,"+(d>0?0:1)+" "+pt(b,R);
+    const tip = [pt(b + d*7, R), pt(b - d*1, R+11), pt(b - d*1, R-11)].join(" ");
+    return '<g class="zone" data-slot="'+slot+'" onclick="focusSlot(\\'' +slot+ '\\')"><title></title>'+
+      '<path class="hit" d="'+path+'"/><path class="arc'+(hold?' hold':'')+'" d="'+path+'"/>'+
+      '<polygon class="head-tip" points="'+tip+'"/></g>';
   };
-  let p = '<div class="knobwrap"><svg viewBox="0 0 320 240">';
-  // Subtle dot grid
-  p += '<defs><pattern id="g" width="20" height="20" patternUnits="userSpaceOnUse">'+
-    '<circle cx="10" cy="10" r=".4" fill="var(--bd)" opacity=".35"/></pattern></defs>';
-  p += '<rect width="320" height="240" fill="url(#g)"/>';
-  // Knob body — concentric rings
-  p += '<circle cx="160" cy="142" r="66" fill="none" stroke="var(--bd)" stroke-width=".8"/>';
-  p += '<circle cx="160" cy="142" r="50" fill="none" stroke="var(--bd)" stroke-width=".5" stroke-dasharray="3 4"/>';
-  p += '<circle cx="160" cy="142" r="34" fill="none" stroke="var(--bd)" stroke-width=".8" opacity=".5"/>';
-  p += '<circle cx="160" cy="142" r="10" fill="none" stroke="var(--bd)" stroke-width="1.5"/>';
-  // Crosshair
-  p += '<line x1="90" y1="142" x2="230" y2="142" stroke="var(--bd)" stroke-width=".4" stroke-dasharray="8 6"/>';
-  p += '<line x1="160" y1="72" x2="160" y2="212" stroke="var(--bd)" stroke-width=".4" stroke-dasharray="8 6"/>';
-  // Tick marks at 45° on outer ring
-  for(let a=45;a<360;a+=90){
-    const ra = a*Math.PI/180;
-    p += '<line x1="'+(160+60*Math.cos(ra)).toFixed(1)+'" y1="'+(142-60*Math.sin(ra)).toFixed(1)+
-      '" x2="'+(160+66*Math.cos(ra)).toFixed(1)+'" y2="'+(142-66*Math.sin(ra)).toFixed(1)+
-      '" stroke="var(--bd)" stroke-width=".6"/>';
-  }
-  // Measurement annotation
-  p += '<text x="227" y="146" font-size="8" font-family="system-ui,sans-serif" fill="var(--mut)">ø55mm</text>';
+  const label = slot => '<button type="button" class="glabel" data-slot="'+slot+'" onclick="focusSlot(\\'' +slot+ '\\')">'+
+    '<span class="gname">'+ico(SLOT_ICONS[slot])+esc(SLOT_NAMES[slot])+'</span>'+
+    '<span class="gaction"></span><span class="gkeys"></span></button>';
+  return '<div class="knobgrid">'+
+    '<div class="side">'+label("press_rotate_left")+label("rotate_left")+'</div>'+
+    '<svg class="knobsvg" viewBox="0 0 400 400" aria-hidden="true">'+
+      '<circle class="body" cx="200" cy="200" r="146"/>'+
+      '<circle class="knurl" cx="200" cy="200" r="134"/>'+
+      arc("press_rotate_left", 114, 142, true) + arc("press_rotate_right", 66, 38, true) +
+      arc("rotate_left", 158, 196, false) + arc("rotate_right", 22, -16, false) +
+      '<g class="zone" data-slot="press" onclick="focusSlot(\\'press\\')"><title></title>'+
+        '<circle class="cap" cx="200" cy="200" r="92"/><circle class="capdot" cx="200" cy="200" r="14"/></g>'+
+    '</svg>'+
+    '<div class="side">'+label("press_rotate_right")+label("rotate_right")+'</div>'+
+    '<div class="pressrow">'+label("press")+'</div></div>';
+}
 
-  // Zone 1: rotate_left — arc indicator left side
-  p += G("rotate_left",
-    (sc,sw)=>'<path d="M94,142 A66,66 0 0,1 110,98" fill="none" stroke="'+sc+'" stroke-width="'+sw+
-      '"/><polygon points="107,95 114,90 113,99" fill="'+sc+'"/>'+
-      '<rect x="30" y="108" width="54" height="32" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
-    (sc,on)=>'<text x="57" y="130" text-anchor="middle" font-size="10" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">rotasi kiri</text>');
-  // Zone 2: rotate_right
-  p += G("rotate_right",
-    (sc,sw)=>'<path d="M226,142 A66,66 0 0,1 210,98" fill="none" stroke="'+sc+'" stroke-width="'+sw+
-      '"/><polygon points="213,95 206,90 207,99" fill="'+sc+'"/>'+
-      '<rect x="236" y="108" width="54" height="32" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
-    (sc,on)=>'<text x="263" y="130" text-anchor="middle" font-size="10" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">rotasi kanan</text>');
-  // Zone 3: press (center)
-  p += G("press",
-    (sc,sw)=>'<circle cx="160" cy="142" r="32" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'"/>'+
-      '<circle cx="160" cy="142" r="8" fill="'+sc+'" fill-opacity="'+(sw==="1.5"?"1":".25")+'"/>',
-    (sc,on)=>'');
-  // Zone 4: press_rotate_left
-  p += G("press_rotate_left",
-    (sc,sw)=>'<path d="M106,142 A54,54 0 0,1 118,108" fill="none" stroke="'+sc+'" stroke-width="'+sw+
-      '" stroke-dasharray="2 3"/>'+
-      '<rect x="10" y="52" width="64" height="30" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
-    (sc,on)=>'<text x="42" y="66" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">tahan+putar</text>'+
-      '<text x="42" y="77" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="var(--mut)">kiri</text>');
-  // Zone 5: press_rotate_right
-  p += G("press_rotate_right",
-    (sc,sw)=>'<path d="M214,142 A54,54 0 0,0 202,108" fill="none" stroke="'+sc+'" stroke-width="'+sw+
-      '" stroke-dasharray="2 3"/>'+
-      '<rect x="246" y="52" width="64" height="30" rx="3" fill="'+sc+'" fill-opacity=".08" stroke="'+sc+'" stroke-width="'+sw+'" stroke-dasharray="4 3"/>',
-    (sc,on)=>'<text x="278" y="66" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="'+(on?sc:'var(--mut)')+'">tahan+putar</text>'+
-      '<text x="278" y="77" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="var(--mut)">kanan</text>');
-  // "tekan" label below press zone
-  p += '<text x="160" y="188" text-anchor="middle" font-size="9" font-family="system-ui,sans-serif" fill="var(--mut)">tekan</text>';
-  // ID mark
-  p += '<text x="75" y="224" font-size="8" font-family="ui-monospace,monospace" fill="var(--bd)" opacity=".5">ANTICATER VK-01</text>';
-  // Ruler marks at bottom
-  p += '<line x1="150" y1="216" x2="245" y2="216" stroke="var(--bd)" stroke-width=".5"/>';
-  for(let i=0;i<=10;i++){
-    const h = i%5===0?5:(i%2===0?3:2);
-    p += '<line x1="'+(150+i*9.5)+'" y1="216" x2="'+(150+i*9.5)+'" y2="'+(216+h)+'" stroke="var(--bd)" stroke-width=".4"/>';
-  }
-  return p + '</svg></div>';
+function updateKnob(){
+  if(!CFG) return;
+  const scope = curScope();
+  SLOTS.forEach(slot => {
+    const a = scope[slot] || {type:"noop"};
+    const off = !a.type || a.type === "noop";
+    const summary = off ? "noop" : actSum(a);
+    const z = document.querySelector('.zone[data-slot="'+slot+'"]');
+    if(z){ z.classList.toggle("off", off);
+      z.querySelector("title").textContent = SLOT_NAMES[slot]+": "+summary; }
+    const l = document.querySelector('.glabel[data-slot="'+slot+'"]');
+    if(!l) return;
+    l.classList.toggle("off", off);
+    const keys = a.type === "sequence" ? (a.steps||[]).length + " langkah" :
+      a.type === "command" ? cmdText(a.keys) : keyText(a.keys, " + ");
+    const main = off ? "Tanpa aksi" : (a.description || keys || "(belum diisi)");
+    const sub = off ? "noop" : a.description ? summary : a.type;
+    l.querySelector(".gaction").textContent = main;
+    l.querySelector(".gkeys").textContent = sub;
+    l.title = SLOT_NAMES[slot]+": "+(a.description ? a.description+" — " : "")+summary;
+  });
 }
 
 let selSlot = "rotate_left";
 function markSel(slot){
   selSlot = slot;
+  if(rec && rec.slot !== slot) recStop();   // perekam tak boleh aktif di panel tersembunyi
   document.querySelectorAll(".zone").forEach(z => z.classList.toggle("sel", z.dataset.slot === slot));
+  document.querySelectorAll(".glabel").forEach(l => {
+    const on = l.dataset.slot === slot;
+    l.classList.toggle("sel", on); l.setAttribute("aria-pressed", on); });
   document.querySelectorAll(".slot").forEach(c => c.classList.toggle("sel", c.id === "slot-"+slot));
 }
 function focusSlot(slot){
@@ -590,23 +846,33 @@ function focusSlot(slot){
   if(!el) return;
   markSel(slot);
   if(PRACTICE){ practicePreview(slot); return; }
-  el.scrollIntoView({behavior:"smooth", block:"center"});
-  const i = el.querySelector("input.keys"); if(i) i.focus();
+  el.scrollIntoView({behavior:"smooth", block:"nearest"});
+  const i = el.querySelector("input.keys"); if(i) i.focus({preventScroll:true});
 }
+
+/* ---------- mode latihan ---------- */
 let rec = null;
-let PRACTICE = false;
+let PRACTICE = false, PSLOT = null;
 function togglePractice(){
-  PRACTICE = !PRACTICE;
+  PRACTICE = !PRACTICE; PSLOT = null;
   $("practicebtn").classList.toggle("on", PRACTICE);
+  $("practicebtn").setAttribute("aria-pressed", PRACTICE);
   $("practicebar").hidden = !PRACTICE;
+  renderPractice();
 }
-function practicePreview(slot){
-  const scope = SEL==="__global__" ? CFG.global : (CFG.apps[SEL]||{});
-  const act = scope[slot] || {type:"noop"};
-  $("pprofile").textContent = SEL==="__global__" ? "global" : SEL;
-  $("pgesture").textContent = SLOT_NAMES[slot];
-  $("paction").textContent = act.type==="noop" ? "— (tidak ada aksi)" : actSum(act);
+function practicePreview(slot){ PSLOT = slot; renderPractice(); }
+function renderPractice(){
+  if(!PRACTICE || !CFG) return;
+  $("pprofile").textContent = profileName();
+  $("phint").hidden = !!PSLOT; $("presult").hidden = !PSLOT;
+  if(!PSLOT) return;
+  const act = curScope()[PSLOT] || {type:"noop"};
+  $("pgesture").textContent = SLOT_NAMES[PSLOT];
+  $("paction").textContent = (!act.type || act.type==="noop") ? "— (tidak ada aksi)" :
+    (act.description ? act.description + " (" + actSum(act) + ")" : actSum(act));
 }
+
+/* ---------- perekam tombol ---------- */
 const RECKEY = { " ":"space", Tab:"tab", Enter:"return", Backspace:"backspace", Delete:"delete",
   ArrowUp:"up", ArrowDown:"down", ArrowLeft:"left", ArrowRight:"right",
   Home:"home", End:"end", PageUp:"pageup", PageDown:"pagedown", Insert:"insert",
@@ -614,8 +880,9 @@ const RECKEY = { " ":"space", Tab:"tab", Enter:"return", Backspace:"backspace", 
   MediaPlayPause:"play_pause", MediaTrackNext:"next_track", MediaTrackPrevious:"previous_track",
   MediaStop:"stop", ",":"comma", ".":"period", "/":"slash", ";":"semicolon", "'":"quote",
   "`":"backquote", "-":"minus", "=":"equal", "[":"bracketleft", "]":"bracketright" };
+const REC_IDLE = () => ico("keyboard") + "Rekam";
 function recStop(){
-  if(rec){ rec.btn.textContent = "⌨ Rekam"; rec.btn.classList.remove("armed"); rec = null; }
+  if(rec){ rec.btn.innerHTML = REC_IDLE(); rec.btn.classList.remove("armed"); rec = null; }
 }
 document.addEventListener("keydown", e => {
   if(!rec) return;
@@ -641,78 +908,105 @@ document.addEventListener("keydown", e => {
   inp.focus();
 });
 
+/* ---------- profil ---------- */
 function select(app, btn){
   SEL = app;
-  document.querySelectorAll(".app").forEach(b => b.classList.toggle("active", b.id === "app-"+app));
-  renderEditor();
+  document.querySelectorAll(".app").forEach(b => {
+    const on = b.id === "app-"+app;
+    b.classList.toggle("active", on); b.setAttribute("aria-current", on);
+    if(on) b.parentElement.scrollIntoView({block:"nearest", inline:"nearest"});
+  });
+  renderEditor(); renderPractice();
 }
 
 function renderApps(){
   const list = $("applist"); list.innerHTML = "";
   const add = (c, active) => {
-    const b = document.createElement("button");
+    const tab = document.createElement("div"); tab.className = "tab";
+    const b = document.createElement("button"); b.type = "button";
     b.className = "app" + (active ? " active" : "");
-    b.id = "app-"+c; b.onclick = () => select(c, b);
-    const span = document.createElement("span"); span.textContent = c;
-    const x = document.createElement("span"); x.className = "x"; x.textContent = "✕";
-    x.title = "hapus"; x.onclick = e => { e.stopPropagation(); removeApp(c); };
-    b.append(span, x); list.appendChild(b);
+    b.id = "app-"+c; b.textContent = c; b.onclick = () => select(c, b);
+    b.setAttribute("aria-current", active);
+    const x = document.createElement("button"); x.type = "button"; x.className = "icon-btn dx x";
+    x.innerHTML = ico("x"); x.title = "Hapus profil " + c; x.setAttribute("aria-label", x.title);
+    x.setAttribute("aria-haspopup", "dialog");
+    x.onclick = e => { e.stopPropagation(); askRemove(c); };
+    tab.append(b, x); list.appendChild(tab);
   };
   Object.keys(CFG.apps||{}).sort().forEach(c => add(c, c===SEL));
-  $("app-__global__").classList.toggle("active", SEL==="__global__");
+  const g = $("app-__global__");
+  g.classList.toggle("active", SEL==="__global__");
+  g.setAttribute("aria-current", SEL==="__global__");
+}
+
+function field(text, control, id){
+  const f = document.createElement("div"); f.className = "field";
+  const lb = document.createElement("label"); lb.textContent = text; lb.htmlFor = id;
+  control.id = id; f.append(lb);
+  return f;
 }
 
 function renderEditor(){
+  recStop();
   const ed = $("editor-inner"); ed.innerHTML = "";
-  const scope = SEL==="__global__" ? CFG.global : (CFG.apps[SEL] || {});
-  const h = document.createElement("h2");
-  h.textContent = SEL==="__global__" ? "Global (semua app lain)" : "Profil: "+SEL;
-  ed.appendChild(h); ed.insertAdjacentHTML("beforeend", renderKnob(scope));
+  const scope = curScope();
+  $("knobcol").innerHTML = '<div class="head"><h2></h2><p></p></div>' + renderKnob();
+  $("knobcol").querySelector("h2").textContent =
+    SEL==="__global__" ? "Profil global" : "Profil: "+SEL;
+  $("knobcol").querySelector("p").textContent = SEL==="__global__" ?
+    "Berlaku untuk semua app lain. Klik gestur untuk mengatur aksinya." :
+    "Berlaku saat app ini fokus. Klik gestur untuk mengatur aksinya.";
   for (const slot of SLOTS){
     const act = scope[slot] || {type:"noop", keys:[], description:""};
     const card = document.createElement("div"); card.className = "slot"; card.id = "slot-"+slot;
-    const h3 = document.createElement("h3"); h3.textContent = SLOT_NAMES[slot]; card.appendChild(h3);
+    const h3 = document.createElement("h3"); h3.innerHTML = ico(SLOT_ICONS[slot]);
+    h3.append(SLOT_NAMES[slot]); card.appendChild(h3);
 
-    const r1 = document.createElement("div"); r1.className = "row";
-    const lb = document.createElement("label"); lb.textContent = "Aksi";
     const sel = document.createElement("select");
     TYPES.forEach(t => { const o = document.createElement("option"); o.value=t;
       o.textContent=t; if(t===act.type) o.selected=true; sel.appendChild(o); });
     sel.onchange = () => { scope[slot] = scope[slot] || {}; scope[slot].type = sel.value;
       scope[slot].keys = []; renderEditor(); markDirty(); };
-    r1.append(lb, sel); card.appendChild(r1);
+    const f1 = field("Aksi", sel, "type-"+slot); f1.append(sel); card.appendChild(f1);
 
     if(act.type === "sequence"){
       const STYPES = ["key","shortcut","mouse","scroll","command"];
       const stepsBox = document.createElement("div"); stepsBox.className = "steps";
       const renderSteps = () => {
-        stepsBox.innerHTML = "";
+        stepsBox.innerHTML = '<label>Langkah (berurutan)</label>';
         scope[slot].steps = scope[slot].steps || [{type:"key", keys:[]}];
         scope[slot].steps.forEach((st, i) => {
           const sr = document.createElement("div"); sr.className = "row step";
           const ts = document.createElement("select");
+          ts.setAttribute("aria-label", "Jenis langkah "+(i+1));
           STYPES.forEach(t => { const o = document.createElement("option"); o.value=t;
             o.textContent=t; if(t===st.type) o.selected=true; ts.appendChild(o); });
           const ip = document.createElement("input"); ip.type="text"; ip.className="keys";
+          ip.setAttribute("aria-label", "Isi langkah "+(i+1));
+          const note = cmdNote(ip);
           const refresh = () => {
             ip.placeholder = ts.value==="command" ? "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+" :
               ts.value==="mouse" ? "left|right|middle" : ts.value==="scroll" ? "up|down|left|right" :
               "control shift tab";
-            ip.value = Array.isArray(st.keys) ? st.keys.join(" ") : String(st.keys||"");
+            ip.value = ts.value==="command" ? cmdText(st.keys) : keyText(st.keys, " ");
+            note.check(ts.value, st.keys);
           };
           ts.onchange = () => { st.type = ts.value;
-            st.keys = ts.value==="command" ? "" : []; refresh(); markDirty(); };
+            st.keys = ts.value==="command" ? "" : []; refresh(); updateChips(); markDirty(); };
           ip.oninput = () => { st.keys = ts.value==="command" ? ip.value :
-            ip.value.split(/\\s+/).filter(Boolean); refresh(); updateChips(); markDirty(); };
-          const dx = document.createElement("button"); dx.type="button"; dx.className="record dx";
-          dx.textContent = "✕";
+            ip.value.split(/\\s+/).filter(Boolean);
+            note.check(ts.value, st.keys); updateChips(); markDirty(); };
+          // jangan tulis ulang ip.value di sini: spasi yang baru diketik akan hilang
+          const dx = document.createElement("button"); dx.type="button"; dx.className="icon-btn dx";
+          dx.innerHTML = ico("x"); dx.title = "Hapus langkah "+(i+1);
+          dx.setAttribute("aria-label", dx.title);
           dx.onclick = () => { scope[slot].steps.splice(i,1);
             if(!scope[slot].steps.length) scope[slot].steps.push({type:"key", keys:[]});
             renderSteps(); updateChips(); markDirty(); };
-          sr.append(ts, ip, dx); refresh(); stepsBox.appendChild(sr);
+          sr.append(ts, ip, dx); refresh(); stepsBox.append(sr, note.el);
         });
         const add = document.createElement("button"); add.type="button"; add.className="record add";
-        add.textContent = "+ langkah";
+        add.innerHTML = ico("plus") + "Langkah";
         add.onclick = () => { scope[slot].steps.push({type:"key", keys:[]});
           renderSteps(); markDirty(); };
         stepsBox.appendChild(add);
@@ -721,29 +1015,32 @@ function renderEditor(){
       card.appendChild(stepsBox);
     } else {
       const r2 = document.createElement("div"); r2.className = "row";
-      const lb2 = document.createElement("label"); lb2.textContent =
-        act.type==="command" ? "Perintah (argv)" : act.type==="mouse" ? "Tombol" :
-        act.type==="scroll" ? "Arah" : "Kunci";
       const inp = document.createElement("input"); inp.type="text"; inp.className="keys";
       inp.placeholder = act.type==="command" ? "wpctl set-volume @DEFAULT_AUDIO_SINK@ 5%+" :
         act.type==="mouse" ? "left|right|middle" : act.type==="scroll" ? "up|down|left|right" :
-        "control shift tab"; inp.value = (act.keys||[]).join(" ");
+        "control shift tab";
+      inp.value = act.type==="command" ? cmdText(act.keys) : keyText(act.keys, " ");
+      const note = cmdNote(inp);
       inp.oninput = () => { scope[slot] = scope[slot] || {};
         const v = inp.value.split(/\\s+/).filter(Boolean);
-        scope[slot].keys = act.type==="command" ? inp.value : v; updateChips(); markDirty(); };
-      r2.append(lb2, inp);
+        scope[slot].keys = act.type==="command" ? inp.value : v;
+        note.check(act.type, scope[slot].keys); updateChips(); markDirty(); };
+      const f2 = field(act.type==="command" ? "Perintah (argv)" : act.type==="mouse" ? "Tombol" :
+        act.type==="scroll" ? "Arah" : "Kunci", inp, "keys-"+slot);
+      r2.append(inp);
       if(act.type !== "command" && act.type !== "mouse"){
         const rb = document.createElement("button"); rb.type="button"; rb.className="record";
-        rb.textContent = "⌨ Rekam";
+        rb.innerHTML = REC_IDLE();
         rb.onclick = () => {
           if(rec && rec.btn !== rb) recStop();
           rec = {btn: rb, slot: slot, inp: inp, scope: scope, upd: updateChips};
-          rb.classList.add("armed"); rb.textContent = "Rekam… Esc batal";
+          rb.classList.add("armed"); rb.innerHTML = ico("keyboard") + "Rekam… Esc batal";
           inp.focus();
         };
         r2.append(rb);
       }
-      card.appendChild(r2);
+      note.check(act.type, act.keys);
+      f2.append(r2, note.el); card.appendChild(f2);
     }
     const chips = document.createElement("div"); chips.className = "chips"; card.appendChild(chips);
     const updateChips = () => {
@@ -751,7 +1048,7 @@ function renderEditor(){
       if(scope[slot] && scope[slot].type === "sequence"){
         (scope[slot].steps || []).forEach(st => {
           const c = document.createElement("span"); c.className = "chip";
-          const ks = Array.isArray(st.keys) ? st.keys.join(" ") : String(st.keys||"");
+          const ks = st.type==="command" ? cmdText(st.keys) : keyText(st.keys, " ");
           c.textContent = (st.type==="key" || st.type==="shortcut") ? ks :
             st.type + (ks ? " "+ks : "");
           chips.appendChild(c);
@@ -759,48 +1056,101 @@ function renderEditor(){
         return;
       }
       let ks = (scope[slot] && scope[slot].keys) || [];
-      if(!Array.isArray(ks)) ks = String(ks).trim() ? ks.split(/\\s+/) : [];
+      if(!Array.isArray(ks)) ks = scope[slot].type === "command" ? (splitCmd(String(ks)).args || []) :
+        String(ks).trim() ? ks.split(/\\s+/) : [];
       (ks||[]).forEach(k => {
-        const c = document.createElement("span"); c.className = "chip"; c.textContent = k;
+        const c = document.createElement("span"); c.className = "chip";
+        c.textContent = k === "" ? "''" : k;
         chips.appendChild(c);
       });
     };
     updateChips();
 
-    const r3 = document.createElement("div"); r3.className = "row";
-    const lb3 = document.createElement("label"); lb3.textContent = "Catatan";
     const d = document.createElement("input"); d.type="text"; d.className="keys";
     d.placeholder = "keterangan opsional"; d.value = act.description || "";
     d.oninput = () => { scope[slot] = scope[slot] || {}; scope[slot].description = d.value; markDirty(); };
-    r3.append(lb3, d); card.appendChild(r3);
+    const f3 = field("Catatan", d, "desc-"+slot); f3.append(d); card.appendChild(f3);
     card.addEventListener("focusin", () => markSel(slot));
     ed.appendChild(card);
   }
+  updateKnob();
   if(selSlot) markSel(selSlot);
 }
 
+function openAdd(){
+  recStop();                       // perekam tak boleh menangkap ketikan di dialog
+  $("tplerr").hidden = true;
+  $("tpltarget").textContent = profileName();
+  $("adddlg").showModal();
+  $("newapp").focus();
+}
 function addApp(){
   const c = $("newapp").value.trim(); if(!c) return;
   CFG.apps[c] = CFG.apps[c] || {}; SLOTS.forEach(s => CFG.apps[c][s] = CFG.apps[c][s] || {type:"noop",keys:[],description:""});
-  $("newapp").value = ""; renderApps(); select(c); markDirty();
+  $("newapp").value = ""; $("adddlg").close(); renderApps(); select(c); markDirty();
 }
 function removeApp(c){ delete CFG.apps[c]; renderApps(); if(SEL===c) select("__global__"); markDirty(); }
 
-function applyTpl(){
-  const name = $("tpl").value;
-  const scope = SEL==="__global__" ? CFG.global : (CFG.apps[SEL]=CFG.apps[SEL]||{});
-  fetch("/api/template",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({name, app:SEL})}).then(r=>r.json()).then(j=>{
-    if(j.ok){ load(); markDirty(); msg("Template diterapkan ke "+(SEL==="__global__"?"global":SEL), false); }
-    else msg(j.error, true); });
+let DELAPP = null;
+function askRemove(c){
+  recStop();
+  DELAPP = c;
+  $("delname").textContent = c;
+  $("deldlg").showModal();
+  $("delcancel").focus();          // Enter tak sengaja = batal
+}
+function confirmRemove(){
+  const c = DELAPP; if(c === null) return;
+  DELAPP = null; $("deldlg").close();
+  removeApp(c);
+  document.querySelector(".app.active").focus();
+  msg("Profil "+c+" dihapus. Klik Simpan untuk menyimpan.", false);
 }
 
-function save(){
-  fetch("/api/save",{method:"POST",headers:{"Content-Type":"application/json"},
-    body:JSON.stringify({config:CFG})}).then(r=>r.json().then(j=>({ok:r.ok,j}))).then(({ok,j})=>{
-    if(ok){ DIRTY=false; $("savebtn").disabled=true; msg("Tersimpan ✔", false); }
-    else msg((j.errors||[j.error]).join(" · "), true);
-  });
+// Template diterapkan di sisi klien saja; tertulis ke server & disk lewat Simpan.
+function applyTpl(){
+  const sel = $("tpl"), name = sel.value;
+  const fail = why => {
+    const t = "Gagal menerapkan template: " + why;
+    $("tplerrtext").textContent = t; $("tplerr").hidden = false; msg(t, true);
+  };
+  if(!TEMPLATES || !Object.hasOwn(TEMPLATES, name)) return fail("template tidak dikenal.");
+  if(SEL!=="__global__" && !Object.hasOwn(CFG.apps, SEL)) return fail("profil aktif tidak ditemukan.");
+  const label = sel.selectedOptions[0].textContent;
+  const copy = JSON.parse(JSON.stringify(TEMPLATES[name]));
+  // sama dengan /api/template: global ditimpa per slot, profil app diganti seluruhnya
+  if(SEL==="__global__") Object.assign(CFG.global, copy); else CFG.apps[SEL] = copy;
+  $("adddlg").close(); renderEditor(); markDirty();
+  msg("Template "+label+" diterapkan ke "+profileName()+". Klik Simpan untuk menyimpan.", false);
+}
+
+/* ---------- server ---------- */
+let SAVING = false, SAVE_TIMEOUT_MS = 10000;
+async function save(){
+  if(SAVING) return;
+  SAVING = true; $("savebtn").disabled = true;
+  msg("Menyimpan…", false); $("msgbox").classList.remove("show");
+  const sent = JSON.stringify({config:CFG});
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), SAVE_TIMEOUT_MS);
+  let why = "";
+  try{
+    const r = await fetch("/api/save", {method:"POST", headers:{"Content-Type":"application/json"},
+      body:sent, signal:ctl.signal});
+    const j = await r.json().catch(() => null);
+    if(ctl.signal.aborted) throw new Error("timeout");
+    if(!(r.ok && j && j.ok === true))
+      why = (j && Array.isArray(j.errors) && j.errors.join(" · ")) || (j && j.error) ||
+        "respons server tidak valid (HTTP " + r.status + ").";
+  }catch(e){
+    why = ctl.signal.aborted ?
+      "server tidak menjawab dalam " + SAVE_TIMEOUT_MS/1000 + " detik. Perubahan mungkin belum tersimpan." :
+      "server GUI tidak terjangkau. Pastikan anticater-gui masih berjalan, lalu coba lagi.";
+  }
+  clearTimeout(timer); SAVING = false;
+  if(why) msg("Gagal menyimpan: " + why, true);
+  else if(JSON.stringify({config:CFG}) === sent){ DIRTY = false; msg("Tersimpan", false); }
+  else msg("Tersimpan, kecuali perubahan yang dibuat saat menyimpan. Klik Simpan lagi.", false);
+  $("savebtn").disabled = !DIRTY;
 }
 
 function toggleDaemon(){
@@ -812,35 +1162,61 @@ function toggleDaemon(){
   });
 }
 
-function msg(t, err){ $("msg").textContent = t; $("msg").style.color = err ? "var(--err)" : "var(--ok)"; }
+function msg(t, err){
+  $("msg").textContent = t;
+  $("msgbox").classList.add("show");
+  $("msgbox").classList.toggle("err", !!err);
+  $("msgicon").setAttribute("href", err ? "#i-alert" : "#i-check");
+}
+
+function toggleLog(){
+  const open = $("logbox").hidden;
+  $("logbox").hidden = !open;
+  $("logbtn").setAttribute("aria-expanded", open);
+  if(open) $("loglines").scrollTop = $("loglines").scrollHeight;
+}
 
 function load(state){
   CFG = state.config;
-  $("cfgpath").textContent = state.cfg_path;
+  const p = String(state.cfg_path), cut = p.lastIndexOf("/") + 1;
+  $("cfgpath").title = p;
+  $("cfgpath").querySelector(".dir").textContent = p.slice(0, cut);
+  $("cfgpath").querySelector(".file").textContent = p.slice(cut);
   renderApps(); renderEditor();
 }
 
 function poll(force){
   fetch("/api/live").then(r=>r.json()).then(s=>{
-    const f = $("focus"); f.textContent = s.focus || "(tidak ada)";
+    const f = $("focus"); f.textContent = s.focus || "(tidak ada)"; f.title = f.textContent;
     window.DAEMON_RUNNING = s.daemon_running;
-    $("dot").classList.toggle("on", s.daemon_running);
+    $("dpill").classList.toggle("on", s.daemon_running);
     $("dstate").textContent = s.daemon_running ? "daemon jalan" : "daemon mati";
-    $("daemonbtn").textContent = s.daemon_running ? "Matikan daemon" : "Nyalakan daemon";
-    $("loglines").textContent = (s.log||[]).join("\\n");
-    const wl = $("wlist"); wl.innerHTML = "";
-    (s.windows||[]).forEach(c => { const o=document.createElement("option"); o.value=c; wl.appendChild(o); });
+    $("daemonlabel").textContent = s.daemon_running ? "Matikan daemon" : "Nyalakan daemon";
+    $("daemonbtn").classList.toggle("danger", s.daemon_running);
+    // tulis hanya bila berubah, agar posisi gulir & seleksi teks tidak terganggu
+    const lg = $("loglines"), text = (s.log||[]).join("\\n");
+    if(lg.textContent !== text){
+      const stick = lg.scrollHeight - lg.scrollTop - lg.clientHeight < 24;
+      lg.textContent = text;
+      if(stick) lg.scrollTop = lg.scrollHeight;
+    }
+    const wl = $("wlist"), wins = (s.windows||[]).join("\\n");
+    if(wl.dataset.wins !== wins){   // jangan bangun ulang saat daftar saran terbuka
+      wl.dataset.wins = wins; wl.innerHTML = "";
+      (s.windows||[]).forEach(c => { const o=document.createElement("option"); o.value=c; wl.appendChild(o); });
+    }
     if(force) setTimeout(renderEditor, 0);
   }).catch(()=>{}).finally(()=> { if(!force) setTimeout(poll, 1500); });
 }
 
 fetch("/api/state").then(r=>r.json()).then(s=>{ load(s); poll(); }).catch(e=>{
-  document.body.innerHTML = "<section><h2>Server tak merespons</h2><p>"+esc(e)+"</p></section>";
+  document.body.innerHTML = '<div style="padding:24px"><h2>Server tak merespons</h2><p>'+esc(e)+"</p></div>";
 });
 </script>
 </body>
 </html>
 """
+PAGE = PAGE.replace("/*TEMPLATES*/null", json.dumps(TEMPLATES))
 
 
 def main(argv=None):
