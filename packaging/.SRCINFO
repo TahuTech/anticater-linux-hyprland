@@ -1,0 +1,14 @@
+pkgbase = anticater-linux-hyprland-git
+	pkgdesc = Daemon kontrol knob ANTICATER VK-01 untuk Hyprland: gestur knob -> aksi per-aplikasi (evdev grab + uinput/hyprctl), GUI editor config, probe HID
+	pkgver = r1.g6a8309b
+	pkgrel = 1
+	url = https://github.com/TahuTech/anticater-linux-hyprland
+	arch = any
+	license = MIT
+	makedepends = git
+	depends = python
+	depends = python-evdev
+	source = anticater-linux-hyprland::git+https://github.com/TahuTech/anticater-linux-hyprland.git
+	sha256sums = SKIP
+
+pkgname = anticater-linux-hyprland-git

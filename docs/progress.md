@@ -2,6 +2,10 @@
 
 Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilangan konteks.
 
+> **Uji 0.57.2-2.1 selesai (dari kantor, tanpa knob)** — wheel sintetis masih
+> JATUH (same as 0.57.2-2). Workaround PageUp/PageDown dipertahankan; profil
+> Spotify tidak diubah. Detail: lihat "Probe uji wheel" + Pending #2.
+
 ## Selesai ✅
 
 | Item | Detail |
@@ -12,12 +16,12 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
 | Autostart | `exec-once` ditambahkan ke `~/.config/hypr/custom.lua` (ML4W, di **luar repo**): `hl.on("hyprland.start")` → jalankan daemon. Efektif saat login berikut |
 | Repro Hyprland | Draft sesuai template `bugs-input` (post manual, lihat Pending). `d927ebc` |
 | Ketahanan cabut/colok | Fix crash saat device hilang (`select` di luar guard → EBADF menembus; sekarang select & read keduanya dijaga, fd ditutup, loop reconnect). Commit ini |
-| Probe uji wheel | `probes/probe_synthetic_input.py` — sekali-jalan, tanpa knob (injeksi uinput): veredik wheel SAMPAI/JATUH (exit 0/1). Terverifikasi 3× di 0.57.2: wheel JATUH |
+| Probe uji wheel | `probes/probe_synthetic_input.py` — sekali-jalan, tanpa knob (injeksi uinput): veredik wheel SAMPAI/JATUH (exit 0/1). 3× di 0.57.2 + 1× di **0.57.2-2.1** (2026-11-27, dari kantor): wheel JATUH konsisten |
 
 ## Environment (penting untuk sesi berikut)
 
 - Repo: `~/Documents/Code/anticater-linux-hyprland` (`TahuTech/anticater-linux-hyprland`, main). Head: lihat `git log`.
-- CachyOS + Hyprland **0.57.2** (`11cbc6c`, 9 Nov 2026); update paket `0.57.2-2.1` tersedia (butuh sudo — password user).
+- CachyOS + Hyprland **0.57.2-2.1** (update sudah terpasang; build `11cbc6c`, 9 Nov 2026).
 - Config live: `config/app-mapping.json` — daemon log `/tmp/anticaterd.log`; hot-reload config otomatis.
 - `KEY_BY_NAME` di daemon **terbalik** (nama→kode, bukan sebaliknya) — jangan "diperbaiki".
 - Commit: `git -c user.name="tahutech" -c user.email="tahutech@users.noreply.github.com" commit -m …` lalu `git push`. Sudo dilarang (password user).
@@ -30,16 +34,19 @@ Status terakhir: 2026-11-27. Snapshot agar sesi berikutnya lanjut tanpa kehilang
    `https://github.com/hyprwm/Hyprland/discussions/new?category=Bugs%20-%20Input`
    — template `bugs-input.yml` melarang laporan AI + 3 checkbox wajib. Draft material:
    `docs/hyprland-repro-0.57-synthetic-input.md`. Draf lama #17114 ditutup bot (strike 1/3), hapus lewat API dilarang.
-2. **Uji `hyprland 0.57.2-2.1`** (update tersedia): jalankan `python3 probes/probe_synthetic_input.py`
-   dari terminal sesi Hyprland. Wheel **SAMPAI (exit 0)** → kembalikan profil Spotify ke `type: scroll`
-   + konfirmasi manual putar knob. **JATUH (exit 1)** → tetap workaround PageUp/PageDown.
-3. **Submit AUR**: `makepkg --printsrcinfo > .SRCINFO` lalu push ke `aur.aur.archlinux.org`.
+2. ~~**Uji `hyprland 0.57.2-2.1`**~~ **SELESAI** (2026-11-27, tanpa knob): wheel **JATUH**
+   → workaround PageUp/PageDown dipertahankan, profil Spotify tetap.
+3. **Submit AUR**: repo `anticater-linux-hyprland-git` **belum ada** di AUR (ls-remote:
+   host key rejection — belum pernah dibuat/di-push). User perlu: buat paket via
+   https://aur.archlinux.org/packages (login TahuTech) → tambah SSH key `~/.ssh/id_ed25519.pub`
+   ke akun → baru `makepkg --printsrcinfo > .SRCINFO` + push (semua tanpa knob, bisa dari kantor).
    Setelah terpasang: ganti path di `custom.lua` ke `/usr/bin/anticaterd`.
 4. **BLE battery**: `upower -d` (dongle input-only; kabel nol paket — belum ditest).
 5. **Catatan saat lanjut**: sempat terlihat 2 perangkat uinput `anticaterd`/`anticaterd-2` (dua
    instance?) dan service `o2ctl` `anticaterd` exited (crash cabut-knob, sudah difix). Instance
    live berjalan dengan kode lama — restart sekali dengan kode fix bila knob dipakai terus.
-6. Hapus `/tmp/mkpkg*`, `/tmp/repro_body.md` bila masih ada (sisa tes, bukan repo).
+   Saat ini daemon **tidak jalan** (`pgrep` kosong) — tidak ada knob, tidak perlu.
+6. Cleanup `/tmp`: sudah bersih (dicek 2026-11-27, tidak ada `/tmp/mkpkg*`/`/tmp/repro_body.md`).
 
 ## Referensi bug Hyprland
 
