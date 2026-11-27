@@ -614,11 +614,24 @@ def main_loop(ctx, actor, keyboard_path):
             timeout = 0.2
             if ctx.press_deadline is not None:
                 timeout = min(timeout, max(0.0, ctx.press_deadline - time.monotonic()))
-            r, _, _ = select.select([dev.fd], [], [], timeout)
+            try:
+                r, _, _ = select.select([dev.fd], [], [], timeout)
+            except OSError:
+                # fd mati (knob dicabut) — tutup & biarkan loop reconnect
+                try:
+                    dev.close()
+                except OSError:
+                    pass
+                dev = None
+                continue
             if r:
                 try:
                     events = dev.read()
                 except OSError:
+                    try:
+                        dev.close()
+                    except OSError:
+                        pass
                     dev = None
                     continue
                 for e in events:
