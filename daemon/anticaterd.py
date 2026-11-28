@@ -343,6 +343,17 @@ def get_active_class():
 
 # ---------- arah pointer (untuk aksi mouse/scroll) ----------
 
+# Hyprland 0.57.2: warp absolut (hl.dsp.cursor.move) memindahkan kursor, tetapi
+# event axis (REL_WHEEL/REL_HWHEEL) dari perangkat sintesis yang dikirim tepat
+# sesudahnya TIDAK sampai ke klien. Satu langkah motion relatif dari perangkat
+# uinput yang sama lebih dulu memulihkan pengiriman (terukur, lihat
+# docs/progress.md). Karena itu setiap aksi mouse/scroll didahului nudge().
+WARP_SETTLE = 0.05
+NUDGE_PX = 3
+NUDGE_GAP = 0.01
+NUDGE_SETTLE = 0.03
+
+
 def hyprctl_out(args):
     """Jalankan hyprctl dengan argumen; kembalikan stdout atau None."""
     try:
@@ -367,8 +378,8 @@ def cursor_pos():
         return None
 
 
-def focus_center():
-    """Titik tengah window aktif; None bila gagal / tak ada jendela."""
+def focus_rect():
+    """Rect window aktif (x, y, w, h); None bila gagal / tak ada jendela."""
     out = hyprctl_out(["-j", "activewindow"])
     if not out:
         return None
@@ -379,40 +390,50 @@ def focus_center():
         return None
     if not at or not size:
         return None
-    return at[0] + size[0] // 2, at[1] + size[1] // 2
+    return at[0], at[1], size[0], size[1]
+
+
+def inside(pos, rect):
+    """True bila pos (x, y) berada di dalam rect (x, y, w, h)."""
+    return (rect[0] <= pos[0] < rect[0] + rect[2]
+            and rect[1] <= pos[1] < rect[1] + rect[3])
 
 
 def warp_pointer(target):
     """Warp pointer ke posisi absolut (x, y) — hl.dsp.cursor.move bersifat
     absolut (setara movecursor lama), presisi penuh selama koordinat berada
-    di dalam monitor."""
-    try:
-        subprocess.run(["hyprctl", "dispatch",
-                        "hl.dsp.cursor.move({ x = %d, y = %d })" % target],
-                       capture_output=True, text=True, timeout=3)
-        return True
-    except subprocess.SubprocessError:
-        return False
+    di dalam monitor. True hanya bila dispatch benar-benar diterima (bukan
+    sekadar proses hyprctl berjalan)."""
+    out = hyprctl_out(["dispatch",
+                       "hl.dsp.cursor.move({ x = %d, y = %d })" % target])
+    return bool(out) and "error" not in out.lower()
 
 
-def with_pointer_on_focus(fn):
-    """Jalankan fn dengan pointer di tengah window aktif, lalu kembalikan.
+def with_pointer_on_focus(fn, nudge=None):
+    """Jalankan fn dengan pointer di dalam window aktif, lalu kembalikan.
 
     Aksi mouse/scroll sintesis dikirim ke window di bawah pointer, bukan ke
     window fokus — pointer diarahkan dulu ke tengah jendela aktif agar gestur
-    knob selalu mengenai aplikasi yang sedang dipakai.
+    knob selalu mengenai aplikasi yang sedang dipakai. Warp dilewati bila
+    pointer sudah berada di jendela aktif; sebelum aksi nudge() dipanggil
+    (motion relatif kecil) karena warp membuang axis berikutnya. Posisi awal
+    pointer dipulihkan di akhir agar sisa motion tidak menumpuk.
     """
     cur = cursor_pos()
-    center = focus_center()
-    if not cur or not center:
-        return fn()
-    if not warp_pointer(center):
-        return fn()
-    time.sleep(0.05)  # biarkan kompositor memproses warp sebelum event input
+    rect = focus_rect()
+    if cur and rect and not inside(cur, rect):
+        center = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+        if not warp_pointer(center):
+            return fn()
+        time.sleep(WARP_SETTLE)
+    if nudge:
+        nudge()
+        time.sleep(NUDGE_SETTLE)
     try:
         return fn()
     finally:
-        warp_pointer(cur)
+        if cur:
+            warp_pointer(cur)
 
 
 def resolve_actions(cfg, app):
@@ -428,6 +449,8 @@ def resolve_actions(cfg, app):
 
 class Actor:
     """Sintesis input via uinput + eksekusi command lewat shell."""
+
+    MOUSE_BUTTONS = (ecodes.BTN_LEFT, ecodes.BTN_RIGHT, ecodes.BTN_MIDDLE)
 
     def __init__(self, keys):
         self._lock = threading.Lock()
@@ -445,7 +468,8 @@ class Actor:
             try:
                 self.ui = UInput(
                     events={
-                        ecodes.EV_KEY: sorted(self._keys),
+                        ecodes.EV_KEY: sorted(self._keys
+                                             | set(self.MOUSE_BUTTONS)),
                         ecodes.EV_REL: [ecodes.REL_X, ecodes.REL_Y,
                                         ecodes.REL_WHEEL, ecodes.REL_HWHEEL],
                     },
@@ -488,13 +512,33 @@ class Actor:
             if self.ui is None:
                 return False
             axis, val = {
-                "up": (ecodes.REL_WHEEL, -1),
-                "down": (ecodes.REL_WHEEL, 1),
+                # Arah terukur di Hyprland 0.57.2 (uji /tmp/uji3/t_dir.py,
+                # jendela GTK): REL_WHEEL +1 -> GDK UP, -1 -> GDK DOWN (sama di
+                # backend Wayland dan XWayland). REL_HWHEEL +1 -> LEFT di
+                # klien Wayland, tetapi RIGHT di XWayland, jadi arah mendatar
+                # ikut konvensi evdev/X11 dan tak bisa benar di kedua backend.
+                "up": (ecodes.REL_WHEEL, 1),
+                "down": (ecodes.REL_WHEEL, -1),
                 "left": (ecodes.REL_HWHEEL, -1),
                 "right": (ecodes.REL_HWHEEL, 1),
             }[direction]
             self.ui.write(ecodes.EV_REL, axis, val)
             self.ui.syn()
+        return True
+
+    def nudge(self):
+        """Gerak relatif kecil bolak-balik (netto ~0 px) sebelum aksi.
+
+        Hyprland membuang event axis dari perangkat sintesis yang dikirim tepat
+        setelah warp absolut; motion relatif lebih dulu memulihkan routing.
+        """
+        with self._lock:
+            if self.ui is None:
+                return False
+            for dx in (NUDGE_PX, -NUDGE_PX):
+                self.ui.write(ecodes.EV_REL, ecodes.REL_X, dx)
+                self.ui.syn()
+                time.sleep(NUDGE_GAP)
         return True
 
     def run_cmd(self, argv):
@@ -542,7 +586,7 @@ def exec_action(actor, slot, act, app, dry_run):
         if direction not in ("up", "down", "left", "right"):
             log.warning("%s/%s: arah scroll tak dikenal '%s'", app, slot, direction)
             return
-        with_pointer_on_focus(lambda: actor.scroll(direction))
+        with_pointer_on_focus(lambda: actor.scroll(direction), actor.nudge)
         log.info("%-16s %-16s -> scroll %s (pointer -> fokus)", slot, app or "?",
                  act.get("keys"))
     elif t == "mouse":
@@ -552,7 +596,7 @@ def exec_action(actor, slot, act, app, dry_run):
             return
         code = {"left": ecodes.BTN_LEFT, "right": ecodes.BTN_RIGHT,
                 "middle": ecodes.BTN_MIDDLE}[btn]
-        with_pointer_on_focus(lambda: actor.click(code))
+        with_pointer_on_focus(lambda: actor.click(code), actor.nudge)
         log.info("%-16s %-16s -> klik mouse %s (pointer -> fokus)", slot,
                  app or "?", btn)
     elif t == "command":
